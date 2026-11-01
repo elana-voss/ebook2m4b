@@ -1,3 +1,5 @@
+# On a push to main: builds and tests, which also fills the cache a tag's build may restore (GitHub lets a tag
+# restore only its own or the default branch's, and drops one unused for 7 days).
 # A release: on a pushed tag v*, builds ebook2m4b for Windows and Linux (x86-64), runs the tests (none
 # needs a GPU; the speaking ones need eSpeak's data, tools/espeak_data.py; the M4B ones ffmpeg) and attaches
 # ebook2m4b-<tag>-windows-x64.zip, ebook2m4b-<tag>-linux-x64.tar.gz and their SHA256SUMS to the tag's GitHub
@@ -7,6 +9,7 @@ name: release
 
 on:
   push:
+    branches: [main]
     tags: ["v*"]
 
 permissions:
@@ -35,6 +38,7 @@ jobs:
           "PATH=C:\Strawberry\perl\bin;$($keep -join ';')" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
       - name: Rust
         run: rustup toolchain install stable --profile minimal && rustup default stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - name: Build
         run: cargo build --release -j 4
       - name: Test (the M4B tests run ffmpeg and ffprobe from PATH)
@@ -43,6 +47,7 @@ jobs:
           python tools/espeak_data.py
           cargo test --release -j 4
       - name: Package
+        if: startsWith(github.ref, 'refs/tags/')
         shell: pwsh
         run: |
           $name = "ebook2m4b-$env:GITHUB_REF_NAME-windows-x64"
@@ -51,6 +56,7 @@ jobs:
           Copy-Item samples\alice.epub "$name\samples"
           Compress-Archive $name "$name.zip"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: startsWith(github.ref, 'refs/tags/')
         with:
           name: windows
           path: ebook2m4b-*.zip
@@ -65,6 +71,7 @@ jobs:
           sudo apt-get install -y cmake gcc g++ clang libclang-dev perl make curl pkg-config libssl-dev python3 ffmpeg
           rustup toolchain install stable --profile minimal && rustup default stable
           bash tools/linux_build_env.sh
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - name: Build
         run: |
           # shellcheck source=/dev/null
@@ -77,6 +84,7 @@ jobs:
           python3 tools/espeak_data.py
           cargo test --release -j 4
       - name: Package
+        if: startsWith(github.ref, 'refs/tags/')
         run: |
           name="ebook2m4b-$GITHUB_REF_NAME-linux-x64"
           mkdir -p "$name/samples"
@@ -84,11 +92,13 @@ jobs:
           cp samples/alice.epub "$name/samples"
           tar -czf "$name.tar.gz" "$name"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: startsWith(github.ref, 'refs/tags/')
         with:
           name: linux
           path: ebook2m4b-*.tar.gz
 
   release:
+    if: startsWith(github.ref, 'refs/tags/')
     needs: [windows, linux]
     runs-on: ubuntu-24.04
     permissions:
