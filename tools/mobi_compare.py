@@ -1,8 +1,8 @@
 """The text of each mobi/azw/azw3 in books/ (or --books) by two routes, compared: Calibre's EPUB
-(work/<book>/book.epub, else made now by tools/' ebook-convert) and another (the books read directly,
+(made once by Calibre's ebook-convert, in --calibre-in) and another (the books read directly,
 or a folder of EPUBs another converter made of them).
 
-Usage: python tools/mobi_compare.py [--books DIR] [--epubs DIR] [--out DIR]
+Usage: python tools/mobi_compare.py [--books DIR] [--epubs DIR] [--out DIR] [--calibre-in DIR]
 Runs target/release/ebook2m4b.exe --text --no-judge (no model asked: seconds a book) on both (out: %TEMP%/ebook2m4b/compare/{calibre,other})
 and prints per book: the opening line (title, authors), the chapter titles, the text (similarity and the
 first differing line) and changes.txt, where they differ; then how many books match.
@@ -16,7 +16,9 @@ import sys
 from pathlib import Path
 
 EXE = Path("target/release/ebook2m4b.exe")
-EBOOK_CONVERT = Path("tools/calibre/PFiles64/Calibre2/ebook-convert.exe")
+ARCHIVE = Path(__file__).resolve().parent.parent.parent / "txt2audiobook"
+BOOKS = ARCHIVE / "books"
+EBOOK_CONVERT = ARCHIVE / "tools" / "calibre" / "PFiles64" / "Calibre2" / "ebook-convert.exe"
 
 
 def run(src, out):
@@ -57,18 +59,16 @@ def compare(c, o):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--books", type=Path, default=Path("books"))
-    ap.add_argument("--epubs", type=Path, help="EPUBs of books/ by another converter (default: books/ read directly)")
+    ap.add_argument("--books", type=Path, default=BOOKS)
+    ap.add_argument("--epubs", type=Path, help="EPUBs of the books by another converter (default: --books read directly)")
     ap.add_argument("--out", type=Path, default=Path(os.environ["TEMP"]) / "ebook2m4b" / "compare")
+    ap.add_argument("--calibre-in", type=Path, help="Calibre's EPUBs, made here once (default: <out>/calibre-in)")
     a = ap.parse_args()
     books = sorted(b for b in a.books.iterdir() if b.suffix.lower() in (".mobi", ".azw", ".azw3"))
-    cal_in = a.out / "calibre-in"
+    cal_in = a.calibre_in or a.out / "calibre-in"
     cal_in.mkdir(parents=True, exist_ok=True)
     for b in books:
-        epub = Path("work") / b.stem / "book.epub"
-        if epub.exists():
-            shutil.copyfile(epub, cal_in / f"{b.stem}.epub")
-        elif not (cal_in / f"{b.stem}.epub").exists():
+        if not (cal_in / f"{b.stem}.epub").exists():
             r = subprocess.run([str(EBOOK_CONVERT), str(b), str(cal_in / f"{b.stem}.epub")], capture_output=True)
             if r.returncode:
                 sys.exit(f"Calibre could not convert {b.name}")
