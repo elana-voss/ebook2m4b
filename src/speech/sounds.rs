@@ -6,7 +6,7 @@
 //! it fails is respelt in English by the language model ("CHOO-eer"), which eSpeak sounds and the trip
 //! tests; the smaller distance is kept. apply(): the book's words whose respelling won are said with it.
 use crate::speech::chunks::Chunk;
-use crate::speech::pronounce::Pronounce;
+use crate::speech::pronounce::{Pronounce, holds};
 use anyhow::{Context, Result};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -174,19 +174,6 @@ fn names_as_heard(p: &Pronounce, expected: &str, heard: &str) -> Result<String> 
         }
     }
     Ok(out.into_iter().filter(|w| !w.is_empty()).collect::<Vec<_>>().join(" "))
-}
-
-/// A letter or a hyphen: what joins a word to its neighbour ("Ro-Tan" is one word, as misaki reads it).
-pub fn inner(c: char) -> bool {
-    c.is_alphabetic() || c == '-'
-}
-
-/// `text` holds `word` whole, no letter nor hyphen beside it.
-fn holds(text: &str, word: &str) -> bool {
-    text.match_indices(word).any(|(i, _)| {
-        !text[..i].chars().next_back().is_some_and(inner)
-            && !text[i + word.len()..].chars().next().is_some_and(inner)
-    })
 }
 
 /// The shortest chunk holding `word`; else the shortest holding it once apostrophes are dropped

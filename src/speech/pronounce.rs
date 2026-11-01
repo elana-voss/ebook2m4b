@@ -148,8 +148,8 @@ fn marked(text: &str, word: &str, phonemes: &str) -> String {
     let mut rest = text;
     while let Some(i) = rest.find(word) {
         let (before, after) = (&rest[..i], &rest[i + word.len()..]);
-        let alone = !before.chars().next_back().is_some_and(crate::speech::sounds::inner)
-            && !after.chars().next().is_some_and(crate::speech::sounds::inner);
+        let alone = !before.chars().next_back().is_some_and(inner)
+            && !after.chars().next().is_some_and(inner);
         out += before;
         if alone {
             // misaki takes no hyphen in a link's text: "[Zo-ri-ba](/ps/)" would be eSpeak's
@@ -160,6 +160,19 @@ fn marked(text: &str, word: &str, phonemes: &str) -> String {
         rest = after;
     }
     out + rest
+}
+
+/// A letter or a hyphen: what joins a word to its neighbour ("Ro-Tan" is one word, as misaki reads it).
+pub fn inner(c: char) -> bool {
+    c.is_alphabetic() || c == '-'
+}
+
+/// `text` holds `word` whole, no letter nor hyphen beside it.
+pub fn holds(text: &str, word: &str) -> bool {
+    text.match_indices(word).any(|(i, _)| {
+        !text[..i].chars().next_back().is_some_and(inner)
+            && !text[i + word.len()..].chars().next().is_some_and(inner)
+    })
 }
 
 #[cfg(test)]
