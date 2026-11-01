@@ -2,7 +2,7 @@
 # needs a GPU; the speaking ones need eSpeak's data, tools/espeak_data.py; the M4B ones ffmpeg) and attaches
 # ebook2m4b-<tag>-windows-x64.zip, ebook2m4b-<tag>-linux-x64.tar.gz and their SHA256SUMS to the tag's GitHub
 # release. The prerequisites are the README's "Building from source". Linux builds on
-# Ubuntu 24.04, not the newest: its glibc 2.39 lets the programs run on Debian 13 and Ubuntu 24.04 and later.
+# Ubuntu 24.04, not the newest: its glibc 2.39 lets the program run on Debian 13 and Ubuntu 24.04 and later.
 name: release
 
 on:
@@ -62,7 +62,7 @@ jobs:
       - name: Build tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake gcc g++ clang libclang-dev perl make curl xz-utils pkg-config libssl-dev python3 ffmpeg
+          sudo apt-get install -y cmake gcc g++ clang libclang-dev perl make curl pkg-config libssl-dev python3 ffmpeg
           rustup toolchain install stable --profile minimal && rustup default stable
           bash tools/linux_build_env.sh
       - name: Build
@@ -80,7 +80,7 @@ jobs:
         run: |
           name="ebook2m4b-$GITHUB_REF_NAME-linux-x64"
           mkdir -p "$name/samples"
-          cp target/release/ebook2m4b target/release/ebook2m4b-whisper README.md LICENSE "$name"
+          cp target/release/ebook2m4b README.md LICENSE "$name"
           cp samples/alice.epub "$name/samples"
           tar -czf "$name.tar.gz" "$name"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

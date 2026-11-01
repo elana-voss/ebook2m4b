@@ -6,7 +6,7 @@
 //! Each card's ONNX Runtime has its own folder (ort, ort-dml), so a card changed later fetches its own.
 //! Libraries nothing loads (TensorRT's provider, cuFFTW, NVBLAS) are not unpacked.
 //! Linux: links in the archives are made again, every file taken may be run, and the libraries' folders
-//! are put on LD_LIBRARY_PATH for the programs started later (llama-server, ebook2m4b-whisper).
+//! are put on LD_LIBRARY_PATH for the programs started later (llama-server, whisper-server).
 use crate::downloads::{Item, Take, items};
 use crate::gpu::Card;
 use crate::os::{Os, THIS};

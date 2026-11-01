@@ -1,8 +1,6 @@
-//! whisper.cpp built in (whisper-rs, the one module naming it): on Windows for a card other than NVIDIA's
-//! (Vulkan, whisper.rs), on Linux in the program ebook2m4b-whisper (CUDA, src/bin), which includes this file.
-//! It takes the first discrete card ggml lists (the integrated AMD one may come first; without a discrete one,
+//! whisper.cpp built in (whisper-rs, the one module naming it), on Windows for a card other than NVIDIA's
+//! (Vulkan, whisper.rs). It takes the first discrete card ggml lists (the integrated AMD one may come first; without a discrete one,
 //! the integrated) and hears Kokoro's 24 kHz voice resampled to Whisper's 16 kHz.
-//! Only whisper-rs, anyhow and std are named here, so that both programs can include it.
 use anyhow::{Result, bail};
 use std::ffi::c_int;
 use std::path::Path;

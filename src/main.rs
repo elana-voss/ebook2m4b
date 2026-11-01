@@ -31,8 +31,6 @@ mod ear;
 mod epub;
 mod extract;
 mod fb2;
-#[cfg(any(unix, test))]
-mod frames;
 mod gpu;
 mod hash;
 mod heat;

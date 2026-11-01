@@ -20,12 +20,11 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 flate2 = "1"
 tar = { version = "0.4", default-features = false }
 
-# whisper.cpp built in: on Windows for another card (Vulkan), on Linux in ebook2m4b-whisper (CUDA)
+# whisper.cpp built in: on Windows for another card (Vulkan)
 [target.'cfg(windows)'.dependencies]
 whisper-rs = { version = "0.16", features = ["vulkan", "raw-api"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-whisper-rs = { version = "0.16", features = ["cuda", "raw-api"] }
 libloading = "0.8"
 
 # espeak-rs-sys fixed for MSVC, carried in our misaki-rs fork
