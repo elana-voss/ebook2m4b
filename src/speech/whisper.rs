@@ -55,7 +55,7 @@ impl Ear {
                     (
                         "file",
                         "c.wav",
-                        &crate::speech::kokoro::wav(wav, crate::speech::kokoro::RATE),
+                        &crate::speech::wav::wav(wav, crate::speech::wav::RATE),
                     ),
                     Duration::from_secs(120),
                 )?;
@@ -67,7 +67,7 @@ impl Ear {
                     .to_string())
             }
             #[cfg(windows)]
-            Ear::Built(state) => crate::speech::ear::hear(state, wav, crate::speech::kokoro::RATE, hint),
+            Ear::Built(state) => crate::speech::ear::hear(state, wav, crate::speech::wav::RATE, hint),
         }
     }
 }

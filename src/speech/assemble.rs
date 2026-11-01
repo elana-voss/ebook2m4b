@@ -7,6 +7,7 @@
 //! A chunk ending inside a sentence (Chunk::cut) meets the next with its own silence trimmed and 0.4 s.
 //! A finished book's work folder is removed; a demo's stays, so the full run reuses its chunks.
 use crate::speech::chunks::Chunk;
+use crate::speech::wav::{RATE, read_wav};
 use anyhow::{Context, Result, bail};
 use std::io::{BufWriter, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
@@ -16,7 +17,6 @@ use std::process::Command;
 pub const LEAD: f32 = 1.0;
 /// seconds of silence after each piece of the demo
 const DEMO_GAP: f32 = 1.5;
-const RATE: u32 = crate::speech::kokoro::RATE;
 /// seconds between two pieces of one sentence, their own silence trimmed
 const CUT_GAP: f32 = 0.4;
 /// -45 dB: quieter samples at a cut piece's end and the next one's start are its silence
@@ -44,38 +44,6 @@ pub fn tags(book: &str, author: &str, voice: &str) -> Vec<(&'static str, String)
     ]
 }
 
-/// A mono WAV's samples, 32-bit float as speak.rs writes them.
-pub fn read_wav(path: &Path) -> Result<Vec<f32>> {
-    let b = std::fs::read(path).with_context(|| path.display().to_string())?;
-    if b.len() < 12 || &b[..4] != b"RIFF" || &b[8..12] != b"WAVE" {
-        bail!("{} is no WAV", path.display());
-    }
-    let (mut at, mut fmt) = (12, None);
-    while at + 8 <= b.len() {
-        let id = &b[at..at + 4];
-        let len = u32::from_le_bytes(b[at + 4..at + 8].try_into()?) as usize;
-        let body = &b[at + 8..(at + 8 + len).min(b.len())];
-        if id == b"fmt " && body.len() >= 16 {
-            let tag = u16::from_le_bytes([body[0], body[1]]);
-            let channels = u16::from_le_bytes([body[2], body[3]]);
-            let bits = u16::from_le_bytes([body[14], body[15]]);
-            fmt = Some((tag, channels, bits));
-        } else if id == b"data" {
-            return match fmt {
-                Some((3, 1, 32)) => Ok(body
-                    .as_chunks::<4>()
-                    .0
-                    .iter()
-                    .map(|s| f32::from_le_bytes(*s))
-                    .collect()),
-                f => bail!("{}: a WAV of format {f:?} is not read", path.display()),
-            };
-        }
-        at += 8 + len + len % 2;
-    }
-    bail!("{} has no sound", path.display())
-}
-
 /// The WAVs one after another into a float WAV at dest, `lead` seconds of silence first and each WAV
 /// followed by its pause; a WAV marked as ending inside a sentence (Chunk::cut) has the silence at its
 /// end and at the next one's start (under QUIET) trimmed and CUT_GAP seconds between them instead.
@@ -83,7 +51,7 @@ pub fn read_wav(path: &Path) -> Result<Vec<f32>> {
 pub fn join(pieces: &[Piece], lead: f32, dest: &Path) -> Result<u64> {
     let silence = |s: f32| vec![0f32; (s * RATE as f32) as usize];
     let mut f = BufWriter::new(std::fs::File::create(dest)?);
-    f.write_all(&crate::speech::kokoro::wav(&[], RATE))?; // the header; its sizes are written at the end
+    f.write_all(&crate::speech::wav::wav(&[], RATE))?; // the header; its sizes are written at the end
     let mut n = 0u64;
     let mut put = |f: &mut BufWriter<std::fs::File>, s: &[f32]| -> Result<()> {
         for x in s {
@@ -331,8 +299,8 @@ mod tests {
     #[test]
     fn chunks_are_joined_with_the_lead_and_their_pauses() {
         let d = tempdir("join");
-        std::fs::write(d.join("a.wav"), crate::speech::kokoro::wav(&[0.5, -0.5], RATE)).unwrap();
-        std::fs::write(d.join("b.wav"), crate::speech::kokoro::wav(&[0.25], RATE)).unwrap();
+        std::fs::write(d.join("a.wav"), crate::speech::wav::wav(&[0.5, -0.5], RATE)).unwrap();
+        std::fs::write(d.join("b.wav"), crate::speech::wav::wav(&[0.25], RATE)).unwrap();
         let pieces = [(d.join("a.wav"), 0.5, false), (d.join("b.wav"), 0.0, false)];
         let n = join(&pieces, 1.0, &d.join("j.wav")).unwrap();
         let w = read_wav(&d.join("j.wav")).unwrap();
@@ -350,8 +318,8 @@ mod tests {
     fn a_piece_ending_inside_a_sentence_joins_trimmed_with_its_gap() {
         let d = tempdir("cut");
         let (a, b) = ([0.5, 0.3, 0.001, 0.0, 0.0], [0.0, -0.002, 0.0, -0.4, 0.2, 0.0]);
-        std::fs::write(d.join("a.wav"), crate::speech::kokoro::wav(&a, RATE)).unwrap();
-        std::fs::write(d.join("b.wav"), crate::speech::kokoro::wav(&b, RATE)).unwrap();
+        std::fs::write(d.join("a.wav"), crate::speech::wav::wav(&a, RATE)).unwrap();
+        std::fs::write(d.join("b.wav"), crate::speech::wav::wav(&b, RATE)).unwrap();
         let pieces = [(d.join("a.wav"), 0.3, true), (d.join("b.wav"), 0.0, false)];
         join(&pieces, 0.0, &d.join("j.wav")).unwrap();
         let w = read_wav(&d.join("j.wav")).unwrap();
@@ -369,7 +337,7 @@ mod tests {
         for i in 0..cs.len() {
             std::fs::write(
                 work.join(format!("{i:06}.wav")),
-                crate::speech::kokoro::wav(&[0.1; 2400], RATE),
+                crate::speech::wav::wav(&[0.1; 2400], RATE),
             )
             .unwrap();
         }
@@ -400,7 +368,7 @@ mod tests {
         for i in 0..cs.len() {
             std::fs::write(
                 work.join(format!("{i:06}.wav")),
-                crate::speech::kokoro::wav(&[0.1; 240], RATE),
+                crate::speech::wav::wav(&[0.1; 240], RATE),
             )
             .unwrap();
         }

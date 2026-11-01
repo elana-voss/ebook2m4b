@@ -8,13 +8,13 @@
 //! when a program starts, so new() loads every library of the folder itself first (preload), each visible to
 //! those loaded after it, and ONNX Runtime's CUDA provider then finds them loaded; that provider itself is
 //! left to ONNX Runtime: loaded first, it crashes.
+use crate::speech::wav::RATE;
 use anyhow::{Context, Result, bail};
 use ort::session::{Session, builder::GraphOptimizationLevel};
 use ort::value::Tensor;
 use std::collections::HashMap;
 use std::path::Path;
 
-pub const RATE: u32 = 24_000;
 pub const MAX_PHONEMES: usize = 510;
 
 pub struct Kokoro {
@@ -147,28 +147,6 @@ fn pieces(phonemes: &str) -> Vec<String> {
     out
 }
 
-/// A 32-bit float WAV of `samples` at `rate`, one channel.
-pub fn wav(samples: &[f32], rate: u32) -> Vec<u8> {
-    let data = (samples.len() * 4) as u32;
-    let mut b = Vec::with_capacity(44 + data as usize);
-    b.extend_from_slice(b"RIFF");
-    b.extend_from_slice(&(36 + data).to_le_bytes());
-    b.extend_from_slice(b"WAVEfmt ");
-    b.extend_from_slice(&16u32.to_le_bytes());
-    b.extend_from_slice(&3u16.to_le_bytes()); // IEEE float
-    b.extend_from_slice(&1u16.to_le_bytes());
-    b.extend_from_slice(&rate.to_le_bytes());
-    b.extend_from_slice(&(rate * 4).to_le_bytes());
-    b.extend_from_slice(&4u16.to_le_bytes());
-    b.extend_from_slice(&32u16.to_le_bytes());
-    b.extend_from_slice(b"data");
-    b.extend_from_slice(&data.to_le_bytes());
-    for s in samples {
-        b.extend_from_slice(&s.to_le_bytes());
-    }
-    b
-}
-
 /// Linux: every library in `dir` but ONNX Runtime's providers (preloaded) loaded, globally visible, each kept for the program's life; one whose own
 /// libraries are not loaded yet fails and is tried again in the next round, until a round loads none.
 #[cfg(unix)]
@@ -226,15 +204,4 @@ mod tests {
         );
         assert_eq!(super::pieces("ab"), vec!["ab".to_string()]);
     }
-
-    #[test]
-    fn a_wav_holds_its_samples_after_a_44_byte_head() {
-        let b = super::wav(&[0.5, -1.0], 24_000);
-        assert_eq!(b.len(), 52);
-        assert_eq!(&b[0..4], b"RIFF");
-        assert_eq!(u32::from_le_bytes(b[4..8].try_into().unwrap()), 44);
-        assert_eq!(u32::from_le_bytes(b[24..28].try_into().unwrap()), 24_000);
-        assert_eq!(f32::from_le_bytes(b[48..52].try_into().unwrap()), -1.0);
-    }
 }
-

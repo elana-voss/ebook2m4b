@@ -7,4 +7,5 @@ pub mod onnx;
 pub mod pronounce;
 pub mod sounds;
 pub mod speak;
+pub mod wav;
 pub mod whisper;

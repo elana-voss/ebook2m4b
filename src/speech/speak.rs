@@ -9,7 +9,8 @@
 //! unsure.txt as "<n> TAB <error> TAB <text>". Voice and Whisper are made at the first chunk to speak
 //! and leave the GPU when speak_all ends (the language model gets its memory for the next book).
 use crate::speech::chunks::Chunk;
-use crate::speech::kokoro::{self, Kokoro};
+use crate::speech::kokoro::Kokoro;
+use crate::speech::wav;
 use crate::speech::pronounce::Pronounce;
 use crate::speech::whisper::Ear;
 use anyhow::{Context, Result};
@@ -111,7 +112,7 @@ pub fn speak_all(
             )?;
             samples += wav.len();
             let part = folder.join("part.wav");
-            std::fs::write(&part, kokoro::wav(&wav, kokoro::RATE))?;
+            std::fs::write(&part, wav::wav(&wav, wav::RATE))?;
             std::fs::rename(&part, &f)?;
             if err > MAX_ERROR {
                 let mut log = std::fs::OpenOptions::new()
@@ -127,7 +128,7 @@ pub fn speak_all(
     }
     println!();
     if samples > 0 {
-        let minutes = samples as f64 / f64::from(kokoro::RATE) / 60.0;
+        let minutes = samples as f64 / f64::from(wav::RATE) / 60.0;
         println!(
             "  {:.1} minutes spoken in {:.0} s: {:.1} s per minute of audio",
             minutes,
