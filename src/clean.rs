@@ -18,8 +18,9 @@ static NOTE_MARKS: LazyLock<Regex> = LazyLock::new(|| re(r"\[\d+\]|\*+"));
 /// That an end or a mark follows the numeral is checked by hand in `romans`.
 static ROMAN: LazyLock<Regex> =
     LazyLock::new(|| re(r"\b((?i:chapter|book|part|volume|act|scene))\s+([IVXLC]+)\b"));
+/// Comma groups are one number only if no digit follows; group 2 is what follows, given back.
 static NUMBER: LazyLock<Regex> =
-    LazyLock::new(|| re(r"\d{1,3}(?:,\d{3})+\b(?:\.\d+)?|\d+(?:\.\d+)?"));
+    LazyLock::new(|| re(r"(\d{1,3}(?:,\d{3})+(?:\.\d+)?)(\D|$)|\d+(?:\.\d+)?"));
 static SPACES: LazyLock<Regex> = LazyLock::new(|| re(r"\s+"));
 
 pub fn clean(text: &str) -> String {
@@ -37,7 +38,10 @@ pub fn clean(text: &str) -> String {
         .map(|c| if "~`|/[]{}<>^_".contains(c) { ' ' } else { c })
         .collect();
     let text = romans(&text);
-    let text = NUMBER.replace_all(&text, |c: &regex::Captures| number(&c[0]));
+    let text = NUMBER.replace_all(&text, |c: &regex::Captures| match c.get(1) {
+        Some(n) => number(n.as_str()) + &c[2],
+        None => number(&c[0]),
+    });
     SPACES.replace_all(&text, " ").trim().to_string()
 }
 
@@ -285,5 +289,12 @@ mod tests {
         ] {
             assert_eq!(clean(text), want);
         }
+    }
+
+    #[test]
+    fn comma_groups_are_one_number_before_a_letter_but_not_before_a_digit() {
+        assert_eq!(clean("the 10,000th and 1,000s"), "the ten thousandth and one thousands");
+        assert_eq!(clean("2,500.5ft, 1,000"), "two thousand, five hundred point fiveft, one thousand");
+        assert_eq!(clean("12,3456"), "twelve,three thousand, four hundred and fifty-six");
     }
 }
