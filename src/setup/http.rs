@@ -1,54 +1,11 @@
-//! HTTP, the one module naming ureq: a download as a stream (setup.rs), a JSON post (llm.rs) and a form
-//! with a file (whisper.rs, whisper.cpp's server); a local server started and stopped (serve, Served).
+//! HTTP, the one module naming ureq: a download as a stream (setup/mod.rs), a JSON post (llm.rs), a form
+//! with a file (whisper.rs, whisper.cpp's server), and whether a URL answers (process.rs).
 //! An answer with an error status is an error, a download that stalls too (a read timeout on the stream,
 //! never a limit on the whole: an 8 GB download takes long).
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use std::io::{self, Read};
-use std::path::Path;
-use std::process::{Child, Command, Stdio};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, sync_channel};
-use std::time::{Duration, Instant};
-
-/// A server started by serve(): killed, and waited for, when dropped.
-pub struct Served(Child);
-
-impl Drop for Served {
-    fn drop(&mut self) {
-        // it may have ended already; nothing is left to stop then
-        let _ = self.0.kill();
-        let _ = self.0.wait();
-    }
-}
-
-/// `exe` started with `args`, once `health_url` answers a GET (asked every half second, at most `wait`).
-/// Refused while something already answers there (one left from a run that was killed would answer for
-/// ours, and dropping ours would stop nothing).
-pub fn serve(exe: &Path, args: &[String], health_url: &str, wait: Duration) -> Result<Served> {
-    let name = exe
-        .file_stem()
-        .map_or_else(String::new, |s| s.to_string_lossy().into_owned());
-    if ok(health_url) {
-        bail!("a server already answers at {health_url} (a {name} left running?); stop it first");
-    }
-    let child = Command::new(exe)
-        .args(args)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .with_context(|| exe.display().to_string())?;
-    let mut served = Served(child);
-    let t = Instant::now();
-    while t.elapsed() < wait {
-        if ok(health_url) {
-            return Ok(served);
-        }
-        if let Some(code) = served.0.try_wait()? {
-            bail!("{name} ended at its start ({code})");
-        }
-        std::thread::sleep(Duration::from_millis(500));
-    }
-    bail!("{name} did not start within {} s", wait.as_secs())
-}
+use std::time::Duration;
 
 /// The body of `url` as a stream, and its size (0 when the server does not say).
 pub fn get(url: &str) -> Result<(u64, impl Read)> {
@@ -218,30 +175,5 @@ mod tests {
         });
         let err = rx.recv_timeout(Duration::from_secs(5)).expect("no hang").unwrap_err();
         assert!(err.contains("big.bin"), "{err}");
-    }
-
-    #[test]
-    fn no_server_starts_where_another_answers() {
-        use std::io::Write;
-        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
-        let port = listener.local_addr().unwrap().port();
-        std::thread::spawn(move || {
-            for mut s in listener.incoming().flatten() {
-                let _ = s.read(&mut [0; 1024]); // the request; its content does not matter
-                let _ = s.write_all(
-                    b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
-                );
-            }
-        });
-        let url = format!("http://127.0.0.1:{port}/health");
-        let err = serve(
-            Path::new("no-such-server.exe"),
-            &[],
-            &url,
-            Duration::from_secs(1),
-        )
-        .err()
-        .unwrap();
-        assert!(err.to_string().contains("already answers"), "{err}");
     }
 }

@@ -11,6 +11,7 @@ pub mod archive;
 pub mod downloads;
 pub mod hash;
 pub mod http;
+pub mod process;
 
 use crate::setup::downloads::{Item, Take, items};
 use crate::gpu::Card;

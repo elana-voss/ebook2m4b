@@ -59,7 +59,7 @@ pub fn place(home: &Path, found: &BTreeMap<String, PathBuf>) -> Result<Place> {
 pub struct Llm {
     place: Place,
     name: String,
-    server: Option<crate::setup::http::Served>,
+    server: Option<crate::setup::process::Served>,
     cache_file: PathBuf,
     cache: Map<String, Value>,
 }
@@ -161,8 +161,8 @@ fn read_if_there(path: &Path) -> Result<Option<String>> {
     }
 }
 
-/// llama.cpp's server on the GPU, answering on PORT (http::serve, at most 120 s).
-fn start(exe: &Path, gguf: &Path) -> Result<crate::setup::http::Served> {
+/// llama.cpp's server on the GPU, answering on PORT (process::serve, at most 120 s).
+fn start(exe: &Path, gguf: &Path) -> Result<crate::setup::process::Served> {
     let out = Command::new(exe)
         .arg("--list-devices")
         .output()
@@ -199,7 +199,7 @@ fn start(exe: &Path, gguf: &Path) -> Result<crate::setup::http::Served> {
     ]
     .map(String::from);
     let health = format!("http://127.0.0.1:{PORT}/health");
-    crate::setup::http::serve(exe, &args, &health, Duration::from_secs(120))
+    crate::setup::process::serve(exe, &args, &health, Duration::from_secs(120))
 }
 
 /// A chat server for tests: answers each request with reply(its body as JSON) as the content, and keeps
