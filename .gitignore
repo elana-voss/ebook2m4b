@@ -1,5 +1,7 @@
 tools/*
-!tools/*.py
+!tools/espeak_data.py
+!tools/linux_build_env.sh
+!tools/whisper_server_build.sh
 work/
 out/
 books/
