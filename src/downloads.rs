@@ -1,8 +1,8 @@
 //! What setup fetches, per system and card, each by its pinned SHA-256 (not a voice: the 54 are fetched
 //! when asked for). An NVIDIA card: ONNX Runtime's CUDA build with CUDA 13's libraries (NVIDIA's own wheels
-//! on PyPI, on Linux cuRAND too: its provider links it); on Windows whisper.cpp's CUDA server, on Linux
-//! none (upstream has no CUDA build for Linux: the program ebook2m4b-whisper beside ours hears,
-//! whisper.rs). Another card, Windows only: ONNX Runtime with
+//! on PyPI, on Linux cuRAND too: its provider links it) and whisper.cpp's CUDA server (upstream's on Windows;
+//! upstream has none for Linux, so there our own release file, tools/whisper_server_build.sh).
+//! Another card, Windows only: ONNX Runtime with
 //! DirectML from Windows ML's NuGet package (Whisper then runs built in, on Vulkan); Linux refuses it.
 //! Every card: llama.cpp's server (Vulkan on Windows, CUDA on Linux) and Gemma 4 E4B, Whisper large-v3-turbo,
 //! Kokoro v1.0 (onnx-community's export) and the voice asked for, espeak-ng's data (the same files on
@@ -77,6 +77,8 @@ fn cuda(os: Os) -> Vec<Item> {
                 "9677e76f21862eb5da7ee5ed69d544738b2d8b5c3ce7e5ec125c5592e6cdbdc8"),
             wheel("curand", "07/73/3ee8e5b4cb891401e603ffd3a59b35c6afe785fd2de123afe7c7029603dc/nvidia_curand-10.4.4.72-py3-none-manylinux_2_27_x86_64.whl",
                 "25c3457ae7a224fdd484dab90b0fc5dc0e842fab5db3012afa4a5bd2af4eb7e5"),
+            item("whisper-server", &format!("{GH}/elana-voss/ebook2m4b/releases/download/whisper-server-b5454/whisper-server-b5454-linux-x64.tar.gz"),
+                "c07986c261b7327d50339fb526a619836ae97e9ba5919a06186c5327812f6146", Take::Tree("whisper-server-b5454-linux-x64/", "whisper")),
         ],
     }
 }
@@ -182,12 +184,11 @@ mod tests {
     }
 
     #[test]
-    fn linux_gets_its_own_builds_and_no_whisper_server() {
+    fn linux_gets_its_own_builds_with_a_whisper_server() {
         let list = items(Os::Linux, Card::Nvidia, "af_bella").unwrap();
         let win = items(Os::Windows, Card::Nvidia, "af_bella").unwrap();
         // Linux's CUDA provider links cuRAND (libcurand.so.10); Windows' loads it never
         let mut want = keys(&win);
-        want.retain(|k| *k != "whisper-server");
         let at = want.iter().position(|k| *k == "cudnn").unwrap() + 1;
         want.insert(at, "curand");
         assert_eq!(keys(&list), want);
