@@ -67,10 +67,12 @@ jobs:
           bash tools/linux_build_env.sh
       - name: Build
         run: |
+          # shellcheck source=/dev/null
           source ~/ebook2m4b-build/env.sh
           cargo build --release -j 4
       - name: Test
         run: |
+          # shellcheck source=/dev/null
           source ~/ebook2m4b-build/env.sh
           python3 tools/espeak_data.py
           cargo test --release -j 4
