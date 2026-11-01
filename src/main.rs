@@ -22,12 +22,10 @@
 //! Before --recheck and before speaking, the book's invented words are settled (sounds::settle, work/sounds.json).
 mod assemble;
 mod chunks;
-mod clean;
 mod docx;
 #[cfg(windows)]
 mod ear;
 mod epub;
-mod extract;
 mod fb2;
 mod gpu;
 mod heat;
@@ -35,7 +33,6 @@ mod html;
 mod kf8;
 mod kokoro;
 mod markup;
-mod misprints;
 mod mobi;
 mod onnx;
 mod os;
@@ -43,11 +40,12 @@ mod pronounce;
 mod sounds;
 mod speak;
 mod whisper;
-mod words;
 
 mod setup;
 mod model;
 use model::{judge, llm};
+mod text;
+use text::{extract, misprints};
 use anyhow::{Context, Result, bail};
 use clap::Parser;
 use std::cell::RefCell;

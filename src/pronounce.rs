@@ -224,7 +224,7 @@ pub(crate) mod tests {
     fn a_chunk_stays_in_the_limit_with_its_respellings() {
         P.say_as("Zzyqot", Some("kˈuɹus".repeat(40)));
         let text = "Zzyqot ran on the hill. ".repeat(40);
-        let chs = [crate::extract::Chapter { title: "T".into(), paragraphs: vec![text] }];
+        let chs = [crate::text::extract::Chapter { title: "T".into(), paragraphs: vec![text] }];
         let cs = crate::chunks::chunks(&chs, &|t| P.length(t));
         let longest = cs.iter().map(|c| P.phonemes(&c.text).unwrap().chars().count()).max();
         P.say_as("Zzyqot", None);

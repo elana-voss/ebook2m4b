@@ -34,7 +34,7 @@ const SHORT_LINE: usize = 20;
 /// (repeats the line, finishes the sentence), the voice reads its phonemes and adds none.
 pub fn heard_error(p: &Pronounce, expected: &str, heard: &str) -> Result<f32> {
     let sounds = |t: &str| -> Result<String> {
-        let t = crate::clean::clean(t);
+        let t = crate::text::clean::clean(t);
         if t.trim().is_empty() {
             return Ok(String::new()); // nothing heard: no phonemes to ask for
         }
@@ -55,7 +55,7 @@ pub fn heard_error(p: &Pronounce, expected: &str, heard: &str) -> Result<f32> {
         .join(" ");
     let heard = names_as_heard(p, expected, &heard)?;
     let (a, b) = (sounds(expected)?, sounds(&heard)?);
-    let wrong = crate::misprints::distance_to_prefix(&a, &b);
+    let wrong = crate::text::misprints::distance_to_prefix(&a, &b);
     Ok(wrong as f32 / a.chars().count().max(SHORT_LINE) as f32)
 }
 
@@ -77,7 +77,7 @@ fn names_as_heard(p: &Pronounce, expected: &str, heard: &str) -> Result<String> 
     let names: Vec<&str> = expected
         .split(|c: char| c.is_whitespace())
         .map(|w| w.trim_matches(|c: char| !c.is_alphanumeric()))
-        .filter(|w| w.chars().filter(char::is_ascii_alphabetic).count() >= 4 && !crate::words::known(w))
+        .filter(|w| w.chars().filter(char::is_ascii_alphabetic).count() >= 4 && !crate::text::words::known(w))
         .collect();
     // a name heard as spelt is that name: not another's nearest sound
     let heard: Vec<String> = out.iter().map(|w| letters(w)).collect();
@@ -92,8 +92,8 @@ fn names_as_heard(p: &Pronounce, expected: &str, heard: &str) -> Result<String> 
                     break;
                 }
                 let got: String = said[k..k + len].concat();
-                let d = crate::misprints::distance(&want, &got);
-                let by_letters = len == 1 && crate::misprints::distance(&spelt, &heard[k]) * 3 <= spelt.len();
+                let d = crate::text::misprints::distance(&want, &got);
+                let by_letters = len == 1 && crate::text::misprints::distance(&spelt, &heard[k]) * 3 <= spelt.len();
                 if (by_letters || d * 2 <= want.chars().count())
                     && near.is_none_or(|n| (!by_letters, d, len, k) < n)
                 {

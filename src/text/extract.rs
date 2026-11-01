@@ -6,7 +6,7 @@
 //! a scene break (<hr>, "* * *") becomes SCENE. Paragraphs cut by a page are joined, words in capitals
 //! read as words. What the rules cannot settle a Judge is asked (judge.rs: a language model).
 //! Each block's text goes through clean.rs, the chapters through misprints.rs.
-use crate::clean::clean;
+use crate::text::clean::clean;
 use crate::epub::{self, Book, Elem, Node};
 use anyhow::Result;
 use regex::Regex;
@@ -539,7 +539,7 @@ pub fn chapters(
         }
         out = kept;
     }
-    crate::misprints::mend(out, judge, series, notes)
+    crate::text::misprints::mend(out, judge, series, notes)
 }
 
 #[cfg(test)]

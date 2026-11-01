@@ -4,7 +4,7 @@
 //! choice, and extract.rs and misprints.rs check each answer before using it.
 //! Trap: the prompts, the items' JSON and the schemas make the cache's keys (llm.rs's head); a change
 //! here asks every question again.
-use crate::extract::Judge;
+use crate::text::extract::Judge;
 use crate::model::llm::Llm;
 use anyhow::Result;
 use serde_json::{Value, json};

@@ -48,7 +48,7 @@ pub fn found(cs: &[Chunk], p: &Pronounce) -> Result<(Vec<String>, Vec<String>)> 
     let (mut english, mut invented) = (BTreeSet::new(), BTreeSet::new());
     for c in cs {
         for w in p.espeak_words(&c.text)?.into_iter().filter(|w| a_word(w)) {
-            if crate::words::known(&w) {
+            if crate::text::words::known(&w) {
                 english.insert(w.to_lowercase());
             } else {
                 invented.insert(w);
@@ -82,7 +82,7 @@ pub fn distance(word: &str, heard: &str) -> f64 {
         let mut joined = String::new();
         for h in &hs[i..(i + 3).min(hs.len())] {
             joined += h;
-            best = best.min(crate::misprints::distance(&w, &joined));
+            best = best.min(crate::text::misprints::distance(&w, &joined));
         }
     }
     best as f64 / n as f64

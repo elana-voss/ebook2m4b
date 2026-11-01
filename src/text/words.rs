@@ -7,7 +7,7 @@ use std::collections::HashSet;
 use std::sync::LazyLock;
 
 static KNOWN: LazyLock<HashSet<&'static str>> =
-    LazyLock::new(|| include_str!("../data/known-words.txt").lines().collect());
+    LazyLock::new(|| include_str!("../../data/known-words.txt").lines().collect());
 
 const PREFIXES: [&str; 5] = ["over", "under", "out", "fore", "counter"];
 

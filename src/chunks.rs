@@ -6,7 +6,7 @@
 //! characters is spoken with the next (a lone word or two is spoken badly).
 //! Sentences are told apart by rule, not by pysbd: an end mark (. ! ? …, closing quotes after it) before
 //! a space and a capital, digit or quote, unless the word before is a title or an initial ("Mr.", "J.").
-use crate::extract::{Chapter, SCENE};
+use crate::text::extract::{Chapter, SCENE};
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;

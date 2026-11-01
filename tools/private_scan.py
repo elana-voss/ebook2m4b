@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(next((a for a in sys.argv[1:] if not a.startswith("--")), Path(__file__).resolve().parent.parent))
-# misaki's US dictionaries verbatim (src/words.rs says how it was made): ordinary English words only
+# misaki's US dictionaries verbatim (src/text/words.rs says how it was made): ordinary English words only
 SKIP = {"data/known-words.txt"}
 terms = [t for t in (Path(__file__).resolve().parent / "private_terms.txt").read_text(encoding="utf-8").splitlines()
          if t.strip() and not t.startswith("#")]
