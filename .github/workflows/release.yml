@@ -1,6 +1,7 @@
 # A release: on a pushed tag v*, builds ebook2m4b for Windows and Linux (x86-64), runs the tests (none
-# needs a GPU) and attaches ebook2m4b-<tag>-windows-x64.zip, ebook2m4b-<tag>-linux-x64.tar.gz and their
-# SHA256SUMS to the tag's GitHub release. The prerequisites are the README's Build section's. Linux builds on
+# needs a GPU; the speaking ones need eSpeak's data, tools/espeak_data.py; the M4B ones ffmpeg) and attaches
+# ebook2m4b-<tag>-windows-x64.zip, ebook2m4b-<tag>-linux-x64.tar.gz and their SHA256SUMS to the tag's GitHub
+# release. The prerequisites are the README's "Building from source". Linux builds on
 # Ubuntu 24.04, not the newest: its glibc 2.39 lets the programs run on Debian 13 and Ubuntu 24.04 and later.
 name: release
 
@@ -29,14 +30,18 @@ jobs:
       - name: Strawberry Perl's perl first on PATH, its c\bin off
         shell: pwsh
         run: |
+          foreach ($f in "C:\Strawberry\perl\bin\perl.exe", "$env:LIBCLANG_PATH\libclang.dll") { if (-not (Test-Path $f)) { throw "$f missing" } }
           $keep = $env:PATH -split ";" | Where-Object { $_ -and $_ -notlike "C:\Strawberry\c\bin*" }
           "PATH=C:\Strawberry\perl\bin;$($keep -join ';')" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
       - name: Rust
         run: rustup toolchain install stable --profile minimal && rustup default stable
       - name: Build
         run: cargo build --release -j 4
-      - name: Test
-        run: cargo test --release -j 4
+      - name: Test (the M4B tests run ffmpeg and ffprobe from PATH)
+        run: |
+          choco install ffmpeg -y --no-progress
+          python tools/espeak_data.py
+          cargo test --release -j 4
       - name: Package
         shell: pwsh
         run: |
@@ -57,7 +62,7 @@ jobs:
       - name: Build tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake gcc g++ clang libclang-dev perl make curl xz-utils pkg-config libssl-dev python3
+          sudo apt-get install -y cmake gcc g++ clang libclang-dev perl make curl xz-utils pkg-config libssl-dev python3 ffmpeg
           rustup toolchain install stable --profile minimal && rustup default stable
           bash tools/linux_build_env.sh
       - name: Build
@@ -67,6 +72,7 @@ jobs:
       - name: Test
         run: |
           source ~/ebook2m4b-build/env.sh
+          python3 tools/espeak_data.py
           cargo test --release -j 4
       - name: Package
         run: |
