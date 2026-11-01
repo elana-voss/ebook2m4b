@@ -1,5 +1,5 @@
 //! First start: what the program needs (downloads.rs, per system and card) is fetched once into its home
-//! folder (os::home: %LOCALAPPDATA%\ebook2m4b, on Linux ~/.local/share/ebook2m4b), never system-wide;
+//! folder (machine::home: %LOCALAPPDATA%\ebook2m4b, on Linux ~/.local/share/ebook2m4b), never system-wide;
 //! home/setup.json names where each piece is, so a later start fetches nothing.
 //! Each download is checked by its pinned SHA-256 before it is unpacked.
 //! Kokoro's model is then patched for the GPU once per patch version (onnx.rs), as "kokoro-gpu" ("kokoro-gpu-dml" on DirectML).
@@ -14,8 +14,7 @@ pub mod http;
 pub mod process;
 
 use crate::setup::downloads::{Item, Take, items};
-use crate::gpu::Card;
-use crate::os::{Os, THIS};
+use crate::machine::{Card, Os, THIS};
 use crate::setup::archive::Kind;
 use anyhow::{Context, Result, bail};
 use std::collections::BTreeMap;
@@ -56,7 +55,7 @@ pub struct Tools {
 }
 
 pub fn home() -> Result<PathBuf> {
-    crate::os::home(crate::os::THIS, |k| std::env::var(k).ok())
+    crate::machine::home(crate::machine::THIS, |k| std::env::var(k).ok())
 }
 
 /// Fetches what is missing for this card and voice; says what it fetches and how far it is.

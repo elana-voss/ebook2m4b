@@ -20,9 +20,7 @@
 //! --recheck <unsure.txt> speaks and hears the book's listed passages again (speak::recheck) and prints
 //! each as "chunk TAB error listed TAB error now TAB heard TAB text", then "unsure: k of n" (tools/unsure_recheck.py).
 //! Before --recheck and before speaking, the book's invented words are settled (sounds::settle, work/sounds.json).
-mod gpu;
-mod heat;
-mod os;
+mod machine;
 
 mod setup;
 mod model;
@@ -206,7 +204,7 @@ fn settle_book(
         pairs
             .iter()
             .map(|(ps, hint)| {
-                heat::wait(); // as before each chunk spoken
+                machine::wait_while_hot(); // as before each chunk spoken
                 e.hear(&k.say(ps)?, hint)
             })
             .collect()
@@ -239,7 +237,7 @@ fn main() -> Result<()> {
         }
         books
     };
-    let tools = setup::ensure(gpu::chosen(args.card.as_deref()), &args.voice)?;
+    let tools = setup::ensure(machine::chosen(args.card.as_deref()), &args.voice)?;
     if let Some(out) = &args.phonemes {
         let data = tools
             .found
@@ -268,7 +266,7 @@ fn main() -> Result<()> {
         }
         return Ok(());
     }
-    let route = if tools.card == gpu::Card::Nvidia {
+    let route = if tools.card == machine::Card::Nvidia {
         "CUDA"
     } else {
         "DirectML"
@@ -294,7 +292,7 @@ fn main() -> Result<()> {
             piece(setup::gpu_model(tools.card).0)?,
             piece("kokoro-tokenizer")?,
             piece(&format!("voice-{}", args.voice))?,
-            tools.card == gpu::Card::Nvidia,
+            tools.card == machine::Card::Nvidia,
             args.speed,
         )
     };

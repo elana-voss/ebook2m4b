@@ -48,7 +48,7 @@ impl Kokoro {
             }
             #[cfg(unix)]
             preload(ort)?;
-            ort::init_from(ort.join(crate::os::onnxruntime(crate::os::THIS)))
+            ort::init_from(ort.join(crate::machine::onnxruntime(crate::machine::THIS)))
                 .context("ONNX Runtime could not be loaded")?
                 .commit();
             *loaded = true;

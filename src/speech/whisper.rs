@@ -4,7 +4,7 @@
 //! Windows only: whisper.cpp built in on Vulkan (ear.rs).
 //! Traps: a server already answering on PORT is refused (one left running would hear for us with another
 //! model); building on Windows needs VULKAN_SDK and LIBCLANG_PATH (CLAUDE.md, Rust).
-use crate::gpu::Card;
+use crate::machine::Card;
 use anyhow::{Context, Result};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -30,7 +30,7 @@ impl Ear {
                 let dir = found
                     .get("whisper-server")
                     .context("whisper-server is not set up")?;
-                let exe = crate::os::exe(crate::os::THIS, "whisper-server");
+                let exe = crate::machine::exe(crate::machine::THIS, "whisper-server");
                 start(&dir.join(exe), model).map(Ear::Server)
             }
             #[cfg(windows)]

@@ -7,8 +7,7 @@
 //! Every card: llama.cpp's server (Vulkan on Windows, CUDA on Linux) and Gemma 4 E4B, Whisper large-v3-turbo,
 //! Kokoro v1.0 (onnx-community's export) and the voice asked for, espeak-ng's data (the same files on
 //! both systems, taken from the Windows wheel), and ffmpeg.
-use crate::gpu::Card;
-use crate::os::Os;
+use crate::machine::{Card, Os};
 use anyhow::{Result, bail};
 
 /// What one download gives: a file, or what is taken out of an archive.

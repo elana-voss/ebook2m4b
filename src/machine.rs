@@ -1,13 +1,90 @@
+//! This machine: its system's names, its card and its heat.
+//!
+//! The two systems the program is built for, Windows and Linux (macOS not), and what differs between them
+//! by name alone: the home folder, a program's file name, ONNX Runtime's library. Each is a function of the
+//! system, so both are tested on either; THIS is the one built for.
+//!
+//! Which graphics card runs the models: an NVIDIA card (CUDA) or another one (DirectML and Vulkan).
+//! NVIDIA's driver brings nvidia-smi (on PATH on Windows and on Linux, WSL2 included); a card it lists is taken
+//! as NVIDIA. Linux has the NVIDIA route only: setup (downloads.rs) refuses another card there.
+//! The hidden --card other (main.rs) takes the other route on any machine, to test it where NVIDIA is found.
+//!
 //! The heat wait (the hardware's safety): before each chunk and each question to the language model
 //! the GPU's and CPU's temperatures are looked at, at most every 30 s; at GPU 83 C or CPU 90 C the run
 //! waits, looking again every 30 s, until both are below. The GPU's from nvidia-smi (none on another
 //! card: 0), the CPU's from the hottest thermal zone: Windows' (tenths of kelvin, by PowerShell), Linux's
 //! /sys/class/thermal/thermal_zone*/temp and its CPU drivers' /sys/class/hwmon/hwmon*/temp*_input
 //! (thousandths of a degree; WSL2 has none: 0).
+use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Os {
+    Windows,
+    Linux,
+}
+
+pub const THIS: Os = if cfg!(windows) { Os::Windows } else { Os::Linux };
+
+/// The home folder: %LOCALAPPDATA%\ebook2m4b on Windows; on Linux $XDG_DATA_HOME/ebook2m4b, else
+/// ~/.local/share/ebook2m4b. `var` reads an environment variable (one set but empty counts as unset).
+pub fn home(os: Os, var: impl Fn(&str) -> Option<String>) -> Result<PathBuf> {
+    let var = |k: &str| var(k).filter(|v| !v.is_empty()).map(PathBuf::from);
+    let base = match os {
+        Os::Windows => var("LOCALAPPDATA").context("LOCALAPPDATA is not set")?,
+        Os::Linux => match var("XDG_DATA_HOME") {
+            Some(d) => d,
+            None => var("HOME")
+                .context("neither XDG_DATA_HOME nor HOME is set")?
+                .join(".local/share"),
+        },
+    };
+    Ok(base.join("ebook2m4b"))
+}
+
+/// A program's file name: `name`.exe on Windows, `name` on Linux.
+pub fn exe(os: Os, name: &str) -> String {
+    match os {
+        Os::Windows => format!("{name}.exe"),
+        Os::Linux => name.to_string(),
+    }
+}
+
+/// ONNX Runtime's library as setup unpacks it.
+pub fn onnxruntime(os: Os) -> &'static str {
+    match os {
+        Os::Windows => "onnxruntime.dll",
+        Os::Linux => "libonnxruntime.so.1",
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Card {
+    Nvidia,
+    Other,
+}
+
+pub fn card() -> Card {
+    match Command::new("nvidia-smi").arg("-L").output() {
+        Ok(out)
+            if out.status.success() && String::from_utf8_lossy(&out.stdout).contains("GPU ") =>
+        {
+            Card::Nvidia
+        }
+        _ => Card::Other,
+    }
+}
+
+/// The card asked for by the hidden --card ("other"), else the one found.
+pub fn chosen(forced: Option<&str>) -> Card {
+    match forced {
+        Some("other") => Card::Other,
+        _ => card(),
+    }
+}
 
 const HOT_GPU: f32 = 83.0;
 const HOT_CPU: f32 = 90.0;
@@ -100,7 +177,7 @@ fn hot((gpu, cpu): (f32, f32)) -> bool {
 }
 
 /// Waits while the machine is hot; looks at most every 30 s, shared by the whole run.
-pub fn wait() {
+pub fn wait_while_hot() {
     static LAST: Mutex<Option<Instant>> = Mutex::new(None);
     let mut last = LAST.lock().unwrap_or_else(|e| e.into_inner());
     if last.is_some_and(|t| t.elapsed() < EVERY) {
@@ -120,6 +197,39 @@ pub fn wait() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn env<'a>(pairs: &'a [(&'a str, &'a str)]) -> impl Fn(&str) -> Option<String> + 'a {
+        move |k| {
+            pairs
+                .iter()
+                .find(|(n, _)| *n == k)
+                .map(|(_, v)| v.to_string())
+        }
+    }
+
+    #[test]
+    fn each_system_has_its_home_folder() {
+        let w = home(Os::Windows, env(&[("LOCALAPPDATA", r"C:\L")])).unwrap();
+        assert_eq!(w, PathBuf::from(r"C:\L").join("ebook2m4b"));
+        let x = home(Os::Linux, env(&[("XDG_DATA_HOME", "/d"), ("HOME", "/h")])).unwrap();
+        assert_eq!(x, PathBuf::from("/d").join("ebook2m4b"));
+        let h = home(Os::Linux, env(&[("XDG_DATA_HOME", ""), ("HOME", "/h")])).unwrap();
+        assert_eq!(h, PathBuf::from("/h").join(".local/share").join("ebook2m4b"));
+        assert!(home(Os::Linux, env(&[])).is_err());
+        assert!(home(Os::Windows, env(&[("HOME", "/h")])).is_err());
+    }
+
+    #[test]
+    fn programs_and_libraries_are_named_per_system() {
+        assert_eq!(exe(Os::Windows, "llama-server"), "llama-server.exe");
+        assert_eq!(exe(Os::Linux, "llama-server"), "llama-server");
+        assert_ne!(onnxruntime(Os::Windows), onnxruntime(Os::Linux));
+    }
+
+    #[test]
+    fn other_asked_for_is_taken_whatever_card_is_found() {
+        assert_eq!(chosen(Some("other")), Card::Other);
+    }
 
     #[test]
     fn temperatures_are_read_and_judged() {

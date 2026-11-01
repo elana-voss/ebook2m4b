@@ -51,7 +51,7 @@ pub fn place(home: &Path, found: &BTreeMap<String, PathBuf>) -> Result<Place> {
         .get("llm")
         .context("the language model is not set up")?;
     Ok(Place::Local {
-        server: dir.join(crate::os::exe(crate::os::THIS, "llama-server")),
+        server: dir.join(crate::machine::exe(crate::machine::THIS, "llama-server")),
         gguf: gguf.clone(),
     })
 }
@@ -96,7 +96,7 @@ impl Llm {
         if let Some(v) = self.cache.get(&key) {
             return Ok(v.clone());
         }
-        crate::heat::wait();
+        crate::machine::wait_while_hot();
         let got = self.post(system, user, schema)?;
         self.cache.insert(key, got.clone());
         if let Some(dir) = self.cache_file.parent() {

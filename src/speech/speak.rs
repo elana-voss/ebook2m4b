@@ -94,7 +94,7 @@ pub fn speak_all(
     for (done, &i) in picks.iter().enumerate() {
         let f = folder.join(format!("{i:06}.wav"));
         if !f.exists() {
-            crate::heat::wait();
+            crate::machine::wait_while_hot();
             if kokoro.is_none() {
                 kokoro = Some(voice()?);
             }
