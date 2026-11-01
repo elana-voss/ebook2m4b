@@ -322,7 +322,7 @@ pub fn body(xhtml: &str) -> Result<Option<Elem>> {
     Ok(Some(elem("body".into(), Vec::new(), &nodes, false)))
 }
 
-/// An XML document's root element as an Elem (FB2, DOCX): local names, no pretty printing.
+/// An XML document's root element as an Elem (FB2, DOCX), by local names.
 pub fn tree(text: &str) -> Result<Elem> {
     let doc = xml(text).map_err(|e| anyhow!("not XML: {e}"))?;
     let root = doc.root_element();

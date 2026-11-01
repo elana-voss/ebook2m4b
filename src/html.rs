@@ -9,8 +9,7 @@
 //! out (it ends at its end or the first element not of a head), and title/style/script anywhere.
 //! cut() ends the page there: the open elements are closed and opened again on the next page.
 //! The page sits in a <div>: epub.rs drops text standing directly in the body before its first
-//! element. It ends with a newline, as in Calibre's pages: epub.rs then adds no "pretty printing"
-//! newlines between a paragraph's inline elements ("( with love )").
+//! element. It ends with a newline, as in Calibre's pages.
 use regex::Regex;
 use std::sync::LazyLock;
 

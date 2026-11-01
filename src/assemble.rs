@@ -2,7 +2,7 @@
 //! chunks joined with their pauses into a float WAV in work/<book>/<voice>/, then ffmpeg makes AAC with
 //! chapter marks (an FFMETADATA file; times from the WAVs' sample counts) and the tags; M4B brand for the
 //! book, plain MP4 for the demo's m4a. Output: out/<book>.m4b, out/<book>.demo.m4a (chapters Start, Middle,
-//! End, 1.5 s after each), out/<book>.unsure.txt.
+//! End, of a short book Start, End; 1.5 s after each), out/<book>.unsure.txt.
 //! LEAD seconds of silence go before the book's title (chunk 0), in the book and in the demo's start.
 //! A chunk ending inside a sentence (Chunk::cut) meets the next with its own silence trimmed and 0.4 s.
 //! A finished book's work folder is removed; a demo's stays, so the full run reuses its chunks.
@@ -44,7 +44,7 @@ pub fn tags(book: &str, author: &str, voice: &str) -> Vec<(&'static str, String)
     ]
 }
 
-/// A mono WAV's samples: 32-bit float or 16-bit PCM.
+/// A mono WAV's samples, 32-bit float as speak.rs writes them.
 pub fn read_wav(path: &Path) -> Result<Vec<f32>> {
     let b = std::fs::read(path).with_context(|| path.display().to_string())?;
     if b.len() < 12 || &b[..4] != b"RIFF" || &b[8..12] != b"WAVE" {
