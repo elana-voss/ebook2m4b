@@ -6,7 +6,7 @@
 //! (LZ77), HUFF/CDIC (kf8.rs) or not compressed; DRM is refused. MOBI 6: the markup is tag soup;
 //! each `filepos=` link target gets an anchor `fileposN` there, the pages are cut at <mbp:pagebreak>
 //! (index_split_NNN.html), the contents come from the NCX index (INDX records,
-//! labels in CNCX), else the links of the guide's toc page. A file holding MOBI 6 and KF8 is read by
+//! labels in CNCX). A file holding MOBI 6 and KF8 is read by
 //! its MOBI 6 part; a KF8-only one (azw3, version 8) by kf8.rs, whose kindle:pos links and NCX tag 6
 //! places become anchors as filepos ones do (book()). Text is UTF-8 or cp1252 as the header says.
 use crate::epub::{self, Book, Page};
@@ -408,58 +408,6 @@ fn link_targets(raw: &[u8]) -> BTreeSet<usize> {
         .collect()
 }
 
-/// The contents when there is no NCX index: the links on the page the guide's toc reference points
-/// at, up to its next page break, as (label, text offset).
-fn guide_toc(raw: &[u8], utf8: bool) -> Vec<(String, u32)> {
-    let toks = tokens(raw);
-    let filepos = |a: &[(String, String)]| {
-        a.iter()
-            .find(|(k, _)| k == "filepos")
-            .and_then(|(_, v)| v.parse::<u32>().ok())
-    };
-    let start = toks.iter().find_map(|(_, t)| match t {
-        Tok::Start(n, a, _)
-            if n == "reference"
-                && a.iter()
-                    .any(|(k, v)| k == "type" && v.eq_ignore_ascii_case("toc")) =>
-        {
-            filepos(a)
-        }
-        _ => None,
-    });
-    let Some(start) = start else {
-        return Vec::new();
-    };
-    let mut out = Vec::new();
-    let mut link: Option<(String, u32)> = None;
-    for (at, t) in toks.iter().filter(|(at, _)| *at >= start as usize) {
-        match t {
-            Tok::Start(n, _, _) if n == "pagebreak" && *at > start as usize && !out.is_empty() => {
-                break;
-            }
-            Tok::Start(n, a, _) if n == "a" => link = filepos(a).map(|f| (String::new(), f)),
-            Tok::Text(b) => {
-                if let Some((label, _)) = &mut link {
-                    label.push_str(&decode(b, utf8));
-                }
-            }
-            Tok::End(n) if n == "a" => {
-                if let Some((label, f)) = link.take() {
-                    let label = html_escape::decode_html_entities(&label)
-                        .split_whitespace()
-                        .collect::<Vec<_>>()
-                        .join(" ");
-                    if !label.is_empty() {
-                        out.push((label, f));
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-    out
-}
-
 fn page_name(i: usize) -> String {
     format!("index_split_{i:03}.html")
 }
@@ -577,23 +525,14 @@ pub fn read(path: &Path) -> Result<Book> {
         return kf8(&recs, &h).with_context(|| format!("{name} cannot be read"));
     }
     let raw = text(&recs, &h).with_context(|| format!("{name} cannot be read"))?;
-    let toc_entries: Vec<_> = if h.ncx != u32::MAX && (h.ncx as usize) < recs.len() {
+    let toc = if h.ncx != u32::MAX && (h.ncx as usize) < recs.len() {
         ncx(&recs, h.ncx as usize, h.utf8)?
             .into_iter()
-            .map(|(label, at, _)| (label, at))
+            .map(|(label, at, _)| (label, at as usize))
             .collect()
     } else {
         Vec::new()
     };
-    let toc_entries = if toc_entries.is_empty() {
-        guide_toc(&raw, h.utf8)
-    } else {
-        toc_entries
-    };
-    let toc = toc_entries
-        .into_iter()
-        .map(|(label, at)| (label, at as usize))
-        .collect();
     let filepos = |k: &str, v: &str| {
         let t = (k == "filepos").then(|| link_targets(format!("{k}={v}").as_bytes()))?;
         t.first().copied()
@@ -667,15 +606,6 @@ mod tests {
     }
 
     #[test]
-    fn contents_from_the_guide_toc_page() {
-        let raw = br#"<html><head><guide><reference title="TOC" type="toc" filepos=0000000119 /></guide></head><body><p>x</p><mbp:pagebreak/><p><a filepos=0000000200>One <b>A</b></a></p><p><a filepos="300">Two</a></p><mbp:pagebreak/><a filepos=5>No</a></body>"#;
-        assert_eq!(
-            guide_toc(raw, true),
-            [("One A".to_string(), 200), ("Two".to_string(), 300)]
-        );
-    }
-
-    #[test]
     fn a_page_without_text_is_not_cut_off() {
         let raw = b"<p>a</p><mbp:pagebreak/><br/> <mbp:pagebreak/><p>b</p>";
         let (pages, at_page) = pages(raw, &BTreeSet::from([25]), &|_, _| None, true);
@@ -703,13 +633,6 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(metadata(&h).1, ["Lewis Carroll", "Kim Stanley"]);
-    }
-
-    #[test]
-    fn a_toc_page_starting_with_a_pagebreak_is_read() {
-        let t = r#"<html><head><guide><reference type="toc" filepos=XXXXXXXXXX /></guide></head><body><p>x</p><mbp:pagebreak/><p><a filepos=5>One</a></p><mbp:pagebreak/>"#;
-        let raw = t.replace("XXXXXXXXXX", &format!("{:010}", t.find("<p>x").unwrap()));
-        assert_eq!(guide_toc(raw.as_bytes(), true), [("One".to_string(), 5)]);
     }
 
     #[test]
