@@ -37,7 +37,7 @@ pub fn gpu_model(card: Card) -> (&'static str, String) {
     };
     (
         key,
-        format!("models/kokoro/{name}-v{}.onnx", crate::onnx::VERSION),
+        format!("models/kokoro/{name}-v{}.onnx", crate::speech::onnx::VERSION),
     )
 }
 
@@ -100,7 +100,7 @@ pub fn ensure(card: Card, voice: &str) -> Result<Tools> {
             .get("kokoro")
             .context("Kokoro's model is not set up")?;
         println!("Kokoro's model is made ready for the GPU");
-        crate::onnx::patch(src, &dst, card == Card::Other)?;
+        crate::speech::onnx::patch(src, &dst, card == Card::Other)?;
         if let Some(old) = found.get(key).filter(|p| **p != dst) {
             let _ = fs::remove_file(old); // an older patch's file; one already gone is fine
         }

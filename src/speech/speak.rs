@@ -8,10 +8,10 @@
 //! (heard_error); over MAX_ERROR it is spoken again, the best of TRIES kept, and one still over goes into
 //! unsure.txt as "<n> TAB <error> TAB <text>". Voice and Whisper are made at the first chunk to speak
 //! and leave the GPU when speak_all ends (the language model gets its memory for the next book).
-use crate::chunks::Chunk;
-use crate::kokoro::{self, Kokoro};
-use crate::pronounce::Pronounce;
-use crate::whisper::Ear;
+use crate::speech::chunks::Chunk;
+use crate::speech::kokoro::{self, Kokoro};
+use crate::speech::pronounce::Pronounce;
+use crate::speech::whisper::Ear;
 use anyhow::{Context, Result};
 use serde_json::{Value, json};
 use std::path::Path;
@@ -303,7 +303,7 @@ mod tests {
         }
     }
 
-    use crate::pronounce::tests::P;
+    use crate::speech::pronounce::tests::P;
 
     #[test]
     fn heard_error_compares_sounds() {

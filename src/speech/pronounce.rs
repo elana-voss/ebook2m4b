@@ -148,8 +148,8 @@ fn marked(text: &str, word: &str, phonemes: &str) -> String {
     let mut rest = text;
     while let Some(i) = rest.find(word) {
         let (before, after) = (&rest[..i], &rest[i + word.len()..]);
-        let alone = !before.chars().next_back().is_some_and(crate::sounds::inner)
-            && !after.chars().next().is_some_and(crate::sounds::inner);
+        let alone = !before.chars().next_back().is_some_and(crate::speech::sounds::inner)
+            && !after.chars().next().is_some_and(crate::speech::sounds::inner);
         out += before;
         if alone {
             // misaki takes no hyphen in a link's text: "[Zo-ri-ba](/ps/)" would be eSpeak's
@@ -225,7 +225,7 @@ pub(crate) mod tests {
         P.say_as("Zzyqot", Some("kˈuɹus".repeat(40)));
         let text = "Zzyqot ran on the hill. ".repeat(40);
         let chs = [crate::text::extract::Chapter { title: "T".into(), paragraphs: vec![text] }];
-        let cs = crate::chunks::chunks(&chs, &|t| P.length(t));
+        let cs = crate::speech::chunks::chunks(&chs, &|t| P.length(t));
         let longest = cs.iter().map(|c| P.phonemes(&c.text).unwrap().chars().count()).max();
         P.say_as("Zzyqot", None);
         assert!(longest <= Some(510), "{longest:?}");

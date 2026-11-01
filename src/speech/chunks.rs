@@ -11,7 +11,7 @@ use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 
-pub const LIMIT: usize = crate::kokoro::MAX_PHONEMES;
+pub const LIMIT: usize = crate::speech::kokoro::MAX_PHONEMES;
 const SHORT: usize = 30;
 const SENTENCE: f32 = 0.3;
 const PARAGRAPH: f32 = 0.7;

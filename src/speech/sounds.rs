@@ -5,8 +5,8 @@
 //! letter edit distance of the heard words to the written word (distance). eSpeak's guess first; a word
 //! it fails is respelt in English by the language model ("CHOO-eer"), which eSpeak sounds and the trip
 //! tests; the smaller distance is kept. apply(): the book's words whose respelling won are said with it.
-use crate::chunks::Chunk;
-use crate::pronounce::Pronounce;
+use crate::speech::chunks::Chunk;
+use crate::speech::pronounce::Pronounce;
 use anyhow::{Context, Result};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -117,7 +117,7 @@ fn hint_without(names: &str, word: &str, text: &str, limit: usize) -> String {
         .split(", ")
         .filter(|n| !n.to_lowercase().contains(&lower))
         .collect();
-    crate::chunks::hint(&kept.join(", "), text, limit)
+    crate::speech::chunks::hint(&kept.join(", "), text, limit)
 }
 
 /// (phonemes, hint) or (word, passage).
@@ -232,7 +232,7 @@ pub fn version(words: &[String], store: &Store) -> Value {
             (s.is_some() || store.contains_key(w)).then(|| (w.clone(), json!(s)))
         })
         .collect();
-    json!({"rules": crate::pronounce::RULES, "sounds": said})
+    json!({"rules": crate::speech::pronounce::RULES, "sounds": said})
 }
 
 pub fn load(path: &Path) -> Result<Store> {
@@ -269,7 +269,7 @@ pub fn save(path: &Path, store: &Store) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::pronounce::tests::P;
+    use crate::speech::pronounce::tests::P;
 
     fn chunk(text: &str) -> Chunk {
         Chunk {

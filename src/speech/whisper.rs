@@ -16,7 +16,7 @@ pub enum Ear {
     /// held only to stop the server when the Ear is dropped
     Server(#[allow(dead_code)] crate::setup::http::Served),
     #[cfg(windows)]
-    Built(crate::ear::WhisperState),
+    Built(crate::speech::ear::WhisperState),
 }
 
 impl Ear {
@@ -34,7 +34,7 @@ impl Ear {
                 start(&dir.join(exe), model).map(Ear::Server)
             }
             #[cfg(windows)]
-            Card::Other => crate::ear::built(model).map(Ear::Built),
+            Card::Other => crate::speech::ear::built(model).map(Ear::Built),
             #[cfg(not(windows))]
             Card::Other => anyhow::bail!("on Linux Whisper runs on an NVIDIA card only"),
         }
@@ -55,7 +55,7 @@ impl Ear {
                     (
                         "file",
                         "c.wav",
-                        &crate::kokoro::wav(wav, crate::kokoro::RATE),
+                        &crate::speech::kokoro::wav(wav, crate::speech::kokoro::RATE),
                     ),
                     Duration::from_secs(120),
                 )?;
@@ -67,7 +67,7 @@ impl Ear {
                     .to_string())
             }
             #[cfg(windows)]
-            Ear::Built(state) => crate::ear::hear(state, wav, crate::kokoro::RATE, hint),
+            Ear::Built(state) => crate::speech::ear::hear(state, wav, crate::speech::kokoro::RATE, hint),
         }
     }
 }
