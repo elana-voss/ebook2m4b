@@ -7,10 +7,30 @@ writes one M4B file per book, with chapters.
 ## Requirements
 
 - Windows 10 or 11, 64-bit, with an NVIDIA card (CUDA) or another card (DirectML and Vulkan).
-- Or Linux, x86-64, with an NVIDIA card and its driver (other cards are not supported on Linux).
+- Or Linux, x86-64, with an NVIDIA card and its driver (other cards are not supported on Linux); the
+  download needs glibc 2.39 or later (Ubuntu 24.04, Debian 13 or newer).
 - About 10 GB of free disk for the tools and models (see Quickstart).
 
-## Build
+## Quickstart
+
+Download the latest build for Windows or Linux from
+https://github.com/elana-voss/ebook2m4b/releases/latest, unpack it and, in its folder, run:
+
+```
+ebook2m4b samples\alice.epub
+```
+
+On Linux that is `./ebook2m4b samples/alice.epub`.
+
+The first run downloads the tools and models it needs with an NVIDIA card, about 8.4 GB on Windows
+(9.7 GB once unpacked) and 8.0 GB on Linux (9.2 GB once unpacked), into `%LOCALAPPDATA%\ebook2m4b` on Windows and `~/.local/share/ebook2m4b` on Linux
+(`$XDG_DATA_HOME/ebook2m4b` when set). It shows each download with its size and its
+progress in percent. Later runs find everything there and start at once.
+
+The audiobook is written to `out\alice.m4b`; work in progress is kept in `work\`, so an interrupted
+run goes on where it stopped.
+
+## Building from source
 
 You need Rust, the Visual Studio C++ build tools, CMake, Git, Strawberry Perl, LLVM's libclang and the
 Vulkan SDK. Then, from this folder:
@@ -34,20 +54,6 @@ cargo build --release
 ```
 
 The programs are `target/release/ebook2m4b` and `target/release/ebook2m4b-whisper`; keep them together.
-
-## Quickstart
-
-```
-ebook2m4b samples\alice.epub
-```
-
-The first run downloads the tools and models it needs with an NVIDIA card, about 8.4 GB on Windows
-(9.7 GB once unpacked) and 8.0 GB on Linux (9.2 GB once unpacked), into `%LOCALAPPDATA%\ebook2m4b` on Windows and `~/.local/share/ebook2m4b` on Linux
-(`$XDG_DATA_HOME/ebook2m4b` when set). It shows each download with its size and its
-progress in percent. Later runs find everything there and start at once.
-
-The audiobook is written to `out\alice.m4b`; work in progress is kept in `work\`, so an interrupted
-run goes on where it stopped.
 
 ## Examples
 

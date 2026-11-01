@@ -1,0 +1,97 @@
+# A release: on a pushed tag v*, builds ebook2m4b for Windows and Linux (x86-64), runs the tests (none
+# needs a GPU) and attaches ebook2m4b-<tag>-windows-x64.zip, ebook2m4b-<tag>-linux-x64.tar.gz and their
+# SHA256SUMS to the tag's GitHub release. The prerequisites are the README's Build section's. Linux builds on
+# Ubuntu 24.04, not the newest: its glibc 2.39 lets the programs run on Debian 13 and Ubuntu 24.04 and later.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-2025
+    env:
+      VULKAN_SDK: C:\vulkan-sdk
+      LIBCLANG_PATH: C:\Program Files\LLVM\bin
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Vulkan SDK (whisper.cpp's Vulkan build)
+        shell: pwsh
+        run: |
+          $exe = "$env:RUNNER_TEMP\vulkansdk.exe"
+          Invoke-WebRequest https://sdk.lunarg.com/sdk/download/1.4.363.0/windows/vulkansdk-windows-X64-1.4.363.0.exe -OutFile $exe
+          Start-Process $exe -Wait -ArgumentList "--root", $env:VULKAN_SDK, "--accept-licenses", "--default-answer", "--confirm-command", "install"
+          if (-not (Test-Path "$env:VULKAN_SDK\Bin\glslc.exe")) { throw "Vulkan SDK not installed" }
+      - name: Strawberry Perl's perl first on PATH, its c\bin off
+        shell: pwsh
+        run: |
+          $keep = $env:PATH -split ";" | Where-Object { $_ -and $_ -notlike "C:\Strawberry\c\bin*" }
+          "PATH=C:\Strawberry\perl\bin;$($keep -join ';')" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Rust
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+      - name: Build
+        run: cargo build --release -j 4
+      - name: Test
+        run: cargo test --release -j 4
+      - name: Package
+        shell: pwsh
+        run: |
+          $name = "ebook2m4b-$env:GITHUB_REF_NAME-windows-x64"
+          New-Item -ItemType Directory "$name\samples" | Out-Null
+          Copy-Item target\release\ebook2m4b.exe, README.md, LICENSE $name
+          Copy-Item samples\alice.epub "$name\samples"
+          Compress-Archive $name "$name.zip"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows
+          path: ebook2m4b-*.zip
+
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake gcc g++ clang libclang-dev perl make curl xz-utils pkg-config libssl-dev python3
+          rustup toolchain install stable --profile minimal && rustup default stable
+          bash tools/linux_build_env.sh
+      - name: Build
+        run: |
+          source ~/ebook2m4b-build/env.sh
+          cargo build --release -j 4
+      - name: Test
+        run: |
+          source ~/ebook2m4b-build/env.sh
+          cargo test --release -j 4
+      - name: Package
+        run: |
+          name="ebook2m4b-$GITHUB_REF_NAME-linux-x64"
+          mkdir -p "$name/samples"
+          cp target/release/ebook2m4b target/release/ebook2m4b-whisper README.md LICENSE "$name"
+          cp samples/alice.epub "$name/samples"
+          tar -czf "$name.tar.gz" "$name"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: linux
+          path: ebook2m4b-*.tar.gz
+
+  release:
+    needs: [windows, linux]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          merge-multiple: true
+      - name: Release with the downloads
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sha256sum ebook2m4b-* > SHA256SUMS
+          gh release create "$GITHUB_REF_NAME" ebook2m4b-* SHA256SUMS --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes
