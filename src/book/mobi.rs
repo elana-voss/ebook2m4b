@@ -9,6 +9,7 @@
 //! labels in CNCX). A file holding MOBI 6 and KF8 is read by
 //! its MOBI 6 part; a KF8-only one (azw3, version 8) by kf8.rs, whose kindle:pos links and NCX tag 6
 //! places become anchors as filepos ones do (book()). Text is UTF-8 or cp1252 as the header says.
+use crate::book::text::decode_as;
 use crate::book::{Book, Page, body};
 use crate::book::soup::{Tok, Xhtml, tokens};
 use crate::book::kf8::{Huff, kf8};
@@ -82,7 +83,7 @@ fn header(r0: &[u8]) -> Result<Header> {
         }
     }
     let (at, len) = (u32_at(r0, 0x54) as usize, u32_at(r0, 0x58) as usize);
-    let full_name = decode(r0.get(at..at + len).unwrap_or_default(), utf8);
+    let full_name = decode_as(r0.get(at..at + len).unwrap_or_default(), utf8);
     // a field the header is too short to hold is absent
     let field = |at: usize| {
         if hlen + 16 >= at + 4 {
@@ -116,20 +117,6 @@ fn header(r0: &[u8]) -> Result<Header> {
         full_name,
         exth,
     })
-}
-
-/// Bytes as text: UTF-8, else cp1252.
-pub(crate) fn decode(b: &[u8], utf8: bool) -> String {
-    if utf8 {
-        return String::from_utf8_lossy(b).into_owned();
-    }
-    const HIGH: &str = "€\u{81}‚ƒ„…†‡ˆ‰Š‹Œ\u{8d}Ž\u{8f}\u{90}‘’“”•–—˜™š›œ\u{9d}žŸ";
-    b.iter()
-        .map(|&c| match c {
-            0x80..=0x9F => HIGH.chars().nth(usize::from(c - 0x80)).unwrap_or('?'),
-            c => char::from(c),
-        })
-        .collect()
 }
 
 /// A text record without its trailing entries.
@@ -300,7 +287,7 @@ fn cncx(r: &[u8], k: usize, utf8: bool, out: &mut BTreeMap<u32, String>) {
     while p < r.len() {
         let (len, used) = varint(&r[p..]);
         let s = r.get(p + used..p + used + len as usize).unwrap_or_default();
-        out.insert((k as u32) * 0x10000 + p as u32, decode(s, utf8));
+        out.insert((k as u32) * 0x10000 + p as u32, decode_as(s, utf8));
         p += used + len as usize;
     }
 }
@@ -444,11 +431,11 @@ fn pages(
                 let mut s = 0;
                 for &t in targets.range(at..&end) {
                     let cut = t - at;
-                    w.text(&decode(&b[s..cut], utf8));
+                    w.text(&decode_as(&b[s..cut], utf8));
                     anchor(&mut w, t, out.len(), &mut at_page);
                     s = cut;
                 }
-                w.text(&decode(&b[s..], utf8));
+                w.text(&decode_as(&b[s..], utf8));
             }
             _ => {
                 anchor(
@@ -495,7 +482,7 @@ fn metadata(h: &Header) -> (Vec<String>, Vec<String>) {
         h.exth
             .iter()
             .filter(|(k, _)| *k == t)
-            .map(|(_, v)| decode(v, h.utf8).trim().to_string())
+            .map(|(_, v)| decode_as(v, h.utf8).trim().to_string())
             .filter(|s| !s.is_empty())
             .collect()
     };
@@ -602,7 +589,7 @@ mod tests {
         assert_eq!(palmdoc(b"ab\x02cd\xC5\x80\x18"), b"abcd Ed E".to_vec());
         // a trailing entry of size 3 last, before it the multibyte bytes (1 + 1)
         assert_eq!(trailing(b"text\xAA\x01\x00\x00\x83", 3), b"text");
-        assert_eq!(decode(b"\x93a\xe9\x94", false), "\u{201c}a\u{e9}\u{201d}");
+        assert_eq!(decode_as(b"\x93a\xe9\x94", false), "\u{201c}a\u{e9}\u{201d}");
     }
 
     #[test]

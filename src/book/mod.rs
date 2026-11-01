@@ -8,10 +8,13 @@
 pub mod docx;
 pub mod epub;
 pub mod fb2;
+pub mod html;
+pub mod htmlbook;
 pub mod kf8;
-pub mod markup;
 pub mod mobi;
 pub mod soup;
+pub mod text;
+pub mod txt;
 
 use anyhow::{Result, anyhow};
 use std::path::Path;
@@ -34,10 +37,7 @@ pub struct Elem {
 
 impl Elem {
     pub fn attr(&self, key: &str) -> Option<&str> {
-        self.attrs
-            .iter()
-            .find(|(k, _)| k == key)
-            .map(|(_, v)| v.as_str())
+        attr(&self.attrs, key)
     }
 
     /// Every string inside, in reading order.
@@ -66,6 +66,11 @@ impl Elem {
             }
         }
     }
+}
+
+/// A key's value among a tag's attributes.
+pub fn attr<'a>(a: &'a [(String, String)], key: &str) -> Option<&'a str> {
+    a.iter().find(|(k, _)| k == key).map(|(_, v)| v.as_str())
 }
 
 /// One item of the spine.
@@ -104,8 +109,8 @@ pub fn read(path: &Path) -> Result<Book> {
         "epub" => epub::read(path),
         "fb2" => fb2::read(path),
         "docx" => docx::read(path),
-        "txt" => markup::txt(path),
-        "html" | "htm" | "xhtml" => markup::html(path),
+        "txt" => txt::read(path),
+        "html" | "htm" | "xhtml" => html::read(path),
         _ => mobi::read(path),
     }
 }

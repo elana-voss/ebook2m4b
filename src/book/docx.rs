@@ -1,5 +1,5 @@
 //! A DOCX (Word) read as a Book: its main part (as _rels/.rels names it, else word/document.xml)
-//! made one HTML document for markup::book().
+//! made one HTML document for htmlbook::book().
 //!
 //! docProps/core.xml gives the title and author (dc:title, dc:creator). Each paragraph (w:p, also in
 //! tables) is a <p>, or h1-h4 where its style (word/styles.xml: named "heading N", or an outline
@@ -11,7 +11,7 @@
 //! in a link, what follows a tab (a contents' page number) is left out.
 use crate::setup::archive::Archive;
 use crate::book::{Book, Elem, Node};
-use crate::book::markup::esc;
+use crate::book::htmlbook::esc;
 use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::path::Path;
@@ -240,7 +240,7 @@ pub fn read(path: &Path) -> Result<Book> {
     if let Some(b) = kid(&doc, "body") {
         body(b, &styles, &mut html);
     }
-    crate::book::markup::book(&html, titles, creators)
+    crate::book::htmlbook::book(&html, titles, creators)
 }
 
 #[cfg(test)]

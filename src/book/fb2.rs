@@ -1,4 +1,4 @@
-//! An FB2 (FictionBook 2) read as a Book: its XML made one HTML document for markup::book().
+//! An FB2 (FictionBook 2) read as a Book: its XML made one HTML document for htmlbook::book().
 //!
 //! title-info gives the title (book-title) and authors (first, middle, last name, else nickname).
 //! Each body is read but one with a name (notes, comments); a note's link (type="note") is left out
@@ -7,7 +7,8 @@
 //! links left out); another title (a poem's, the body's) and a subtitle an h4; p, v (a verse line) and text-author paragraphs; poem, stanza, cite, epigraph a div.
 //! empty-line is nothing: converters write it for a scene break and for a blank line alike.
 use crate::book::{Book, Elem, Node};
-use crate::book::markup::{decode, esc};
+use crate::book::htmlbook::esc;
+use crate::book::text::decode;
 use anyhow::{Context, Result};
 use std::path::Path;
 
@@ -43,7 +44,7 @@ fn title(e: &Elem) -> String {
         if t.is_empty() {
             continue;
         }
-        out = crate::book::markup::join_title(&out, &t);
+        out = crate::book::htmlbook::join_title(&out, &t);
     }
     out
 }
@@ -119,7 +120,7 @@ pub fn read(path: &Path) -> Result<Book> {
     for body in kids(&root, "body").filter(|b| b.attr("name").is_none()) {
         walk(body, &mut html);
     }
-    crate::book::markup::book(&html, titles, creators)
+    crate::book::htmlbook::book(&html, titles, creators)
 }
 
 #[cfg(test)]
