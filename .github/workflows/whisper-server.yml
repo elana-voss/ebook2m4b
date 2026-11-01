@@ -1,0 +1,33 @@
+# whisper.cpp's server for Linux with CUDA (upstream publishes one for Windows only), built once and published
+# as a release file that setup fetches by its hash (src/downloads.rs). On a pushed tag whisper-server-<whisper.cpp's
+# tag>, so only when whisper.cpp is updated; then the new URL and hash go into downloads.rs. Ubuntu 24.04 as the
+# release's Linux job, for the same glibc. Never the repository's latest release: the README links that one.
+name: whisper-server
+
+on:
+  push:
+    tags: ["whisper-server-*"]
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake gcc g++ make curl xz-utils git python3
+      - name: Build
+        run: bash tools/whisper_server_build.sh "${GITHUB_REF_NAME#whisper-server-}" "$RUNNER_TEMP/w"
+      - name: Release with the program
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" "$RUNNER_TEMP"/w/whisper-server-*.tar.gz "$RUNNER_TEMP"/w/whisper-server-*.sha256 \
+            --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --latest=false \
+            --notes "whisper.cpp's server for Linux with CUDA, fetched by ebook2m4b's setup. Not the program itself: see the latest release."
