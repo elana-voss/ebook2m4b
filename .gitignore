@@ -9,3 +9,6 @@ books/
 *.epub
 target/
 !samples/*.epub
+CLAUDE.md
+docs/
+.claude/
