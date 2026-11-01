@@ -5,7 +5,7 @@
 //! Trap: the prompts, the items' JSON and the schemas make the cache's keys (llm.rs's head); a change
 //! here asks every question again.
 use crate::extract::Judge;
-use crate::llm::Llm;
+use crate::model::llm::Llm;
 use anyhow::Result;
 use serde_json::{Value, json};
 use std::cell::RefCell;
@@ -152,7 +152,7 @@ impl Judge for ModelJudge {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::llm::{Place, fake};
+    use crate::model::llm::{Place, fake};
 
     fn judge(url: String, name: &str) -> (ModelJudge, std::path::PathBuf) {
         let cache =
