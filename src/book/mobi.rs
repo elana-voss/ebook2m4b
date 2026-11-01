@@ -1,4 +1,4 @@
-//! A mobi, azw or azw3 read as an epub::Book, without Calibre, the way Calibre's conversion gives it.
+//! A mobi, azw or azw3 read as a Book, without Calibre, the way Calibre's conversion gives it.
 //!
 //! A Palm database: record 0 holds the PalmDOC and MOBI headers and EXTH (title 503, authors 100,
 //! "Last, First" turned); the text records follow (as many as there are), each with
@@ -9,7 +9,7 @@
 //! labels in CNCX). A file holding MOBI 6 and KF8 is read by
 //! its MOBI 6 part; a KF8-only one (azw3, version 8) by kf8.rs, whose kindle:pos links and NCX tag 6
 //! places become anchors as filepos ones do (book()). Text is UTF-8 or cp1252 as the header says.
-use crate::book::epub::{self, Book, Page};
+use crate::book::{Book, Page, body};
 use crate::book::soup::{Tok, Xhtml, tokens};
 use crate::book::kf8::{Huff, kf8};
 use anyhow::{Context, Result, bail};
@@ -568,7 +568,7 @@ pub(crate) fn book(
                 .into_owned();
             Ok(Page {
                 name: page_name(i),
-                body: epub::body(&html)?,
+                body: body(&html)?,
                 is_doc: true,
             })
         })

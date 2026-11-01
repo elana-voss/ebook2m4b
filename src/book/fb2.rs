@@ -1,4 +1,4 @@
-//! An FB2 (FictionBook 2) read as an epub::Book: its XML made one HTML document for markup::book().
+//! An FB2 (FictionBook 2) read as a Book: its XML made one HTML document for markup::book().
 //!
 //! title-info gives the title (book-title) and authors (first, middle, last name, else nickname).
 //! Each body is read but one with a name (notes, comments); a note's link (type="note") is left out
@@ -6,7 +6,7 @@
 //! joined, ". " where a line ends in a letter or digit) is an h2, an entry of the contents (note
 //! links left out); another title (a poem's, the body's) and a subtitle an h4; p, v (a verse line) and text-author paragraphs; poem, stanza, cite, epigraph a div.
 //! empty-line is nothing: converters write it for a scene break and for a blank line alike.
-use crate::book::epub::{Book, Elem, Node};
+use crate::book::{Book, Elem, Node};
 use crate::book::markup::{decode, esc};
 use anyhow::{Context, Result};
 use std::path::Path;
@@ -89,7 +89,7 @@ fn walk(e: &Elem, out: &mut String) {
 pub fn read(path: &Path) -> Result<Book> {
     let b = std::fs::read(path).with_context(|| path.display().to_string())?;
     let root =
-        crate::book::epub::tree(&decode(&b)).with_context(|| format!("{} is no FB2", path.display()))?;
+        crate::book::tree(&decode(&b)).with_context(|| format!("{} is no FB2", path.display()))?;
     let info = kids(&root, "description")
         .flat_map(|d| kids(d, "title-info"))
         .next();
@@ -128,7 +128,7 @@ mod tests {
 
     #[test]
     fn only_a_sections_title_is_a_heading() {
-        let body = crate::book::epub::tree(
+        let body = crate::book::tree(
             r##"<body><title><p>Book</p></title><section><title><p>Chapter One,</p><p>The Lake<a type="note">1</a></p></title><poem><title><p>Song</p></title></poem></section></body>"##,
         )
         .unwrap();

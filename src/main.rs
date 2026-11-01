@@ -32,7 +32,6 @@ use text::{extract, misprints};
 mod speech;
 use speech::{assemble, chunks, kokoro, pronounce, sounds, speak, whisper};
 mod book;
-use book::{docx, epub, fb2, markup, mobi};
 use anyhow::{Context, Result, bail};
 use clap::Parser;
 use std::cell::RefCell;
@@ -102,20 +101,10 @@ fn read_book(
     dir: Option<&Path>,
     series: &mut HashSet<String>,
     judge: &dyn extract::Judge,
-) -> Result<(epub::Book, Vec<extract::Chapter>)> {
+) -> Result<(book::Book, Vec<extract::Chapter>)> {
     let name = book_name(src);
     let work = Path::new("work").join(&name);
-    let ext = src
-        .extension()
-        .map_or(String::new(), |e| e.to_string_lossy().to_lowercase());
-    let book = match ext.as_str() {
-        "epub" => epub::read(src)?,
-        "fb2" => fb2::read(src)?,
-        "docx" => docx::read(src)?,
-        "txt" => markup::txt(src)?,
-        "html" | "htm" | "xhtml" => markup::html(src)?,
-        _ => mobi::read(src)?,
-    };
+    let book = book::read(src)?;
     let mut notes = Vec::new();
     let chs = extract::chapters(&book, Some(judge), series, &mut notes)?;
     judge.close(); // the GPU's memory to the voice; answers stay in the cache

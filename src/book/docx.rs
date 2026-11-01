@@ -1,4 +1,4 @@
-//! A DOCX (Word) read as an epub::Book: its main part (as _rels/.rels names it, else word/document.xml)
+//! A DOCX (Word) read as a Book: its main part (as _rels/.rels names it, else word/document.xml)
 //! made one HTML document for markup::book().
 //!
 //! docProps/core.xml gives the title and author (dc:title, dc:creator). Each paragraph (w:p, also in
@@ -10,7 +10,7 @@
 //! anchor before its paragraph and an internal hyperlink links it, so that a contents page works;
 //! in a link, what follows a tab (a contents' page number) is left out.
 use crate::setup::archive::Archive;
-use crate::book::epub::{Book, Elem, Node};
+use crate::book::{Book, Elem, Node};
 use crate::book::markup::esc;
 use anyhow::{Context, Result};
 use std::collections::HashMap;
@@ -41,7 +41,7 @@ fn rule(ppr: Option<&Elem>) -> bool {
 }
 
 fn styles(xml: &str) -> Result<HashMap<String, Style>> {
-    let root = crate::book::epub::tree(xml)?;
+    let root = crate::book::tree(xml)?;
     let heading = regex::Regex::new(r"(?i)^heading ([1-9])$").unwrap();
     // a style's own level and rule (None: not said) and the style it is based on
     type Own = (Option<usize>, Option<bool>, Option<String>);
@@ -207,7 +207,7 @@ pub fn read(path: &Path) -> Result<Book> {
         .text("_rels/.rels")
         .ok()
         .and_then(|r| {
-            let rels = crate::book::epub::tree(&r).ok()?;
+            let rels = crate::book::tree(&r).ok()?;
             rels.children.iter().find_map(|c| match c {
                 Node::Elem(k)
                     if k.attr("Type")
@@ -219,14 +219,14 @@ pub fn read(path: &Path) -> Result<Book> {
             })
         })
         .unwrap_or_else(|| "word/document.xml".into());
-    let doc = crate::book::epub::tree(&z.text(&main)?)?;
+    let doc = crate::book::tree(&z.text(&main)?)?;
     let styles = match z.text("word/styles.xml") {
         Ok(s) => styles(&s)?,
         Err(_) => HashMap::new(), // a document without styles: plain paragraphs
     };
     let (mut titles, mut creators) = (Vec::new(), Vec::new());
     if let Ok(core) = z.text("docProps/core.xml") {
-        for c in &crate::book::epub::tree(&core)?.children {
+        for c in &crate::book::tree(&core)?.children {
             let Node::Elem(k) = c else { continue };
             let t = k.text("").trim().to_string();
             match k.name.as_str() {

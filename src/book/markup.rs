@@ -1,4 +1,4 @@
-//! TXT and HTML read as an epub::Book, and book(): one HTML document (theirs, or the one fb2.rs or
+//! TXT and HTML read as a Book, and book(): one HTML document (theirs, or the one fb2.rs or
 //! docx.rs makes) cut into pages through html.rs, as extract.rs reads them.
 //!
 //! book(): a page ends at each <mbp:pagebreak/> (or <pagebreak/>) and before each element a link of
@@ -10,7 +10,7 @@
 //! TXT: paragraphs are the lines between blank lines, joined; a file without blank lines has one per
 //! line, or, where lines are indented, one from each indented line on. No contents: extract.rs finds
 //! lines like "Chapter One". HTML: its <title> and <meta name="author">.
-use crate::book::epub::{self, Book, Page};
+use crate::book::{Book, Page, body};
 use crate::book::soup::{Tok, Xhtml, tokens, unescape};
 use anyhow::{Context, Result};
 use std::collections::{HashMap, HashSet};
@@ -182,7 +182,7 @@ pub fn book(html: &str, titles: Vec<String>, creators: Vec<String>) -> Result<Bo
             });
             Ok(Page {
                 name: page_name(i),
-                body: epub::body(&p)?,
+                body: body(&p)?,
                 is_doc: true,
             })
         })

@@ -7,7 +7,7 @@
 //! read as words. What the rules cannot settle a Judge is asked (judge.rs: a language model).
 //! Each block's text goes through clean.rs, the chapters through misprints.rs.
 use crate::text::clean::clean;
-use crate::book::epub::{self, Book, Elem, Node};
+use crate::book::{self, Book, Elem, Node};
 use anyhow::Result;
 use regex::Regex;
 use std::sync::LazyLock;
@@ -238,7 +238,7 @@ fn own_contents(book: &Book) -> Vec<(String, String)> {
             .filter(|a| a.name == "a")
             .filter_map(|a| Some((a.text(" ").trim().to_string(), a.attr("href")?.to_string())))
             .filter(|(_, h)| {
-                let n = epub::base_name(h.split('#').next().unwrap_or(""));
+                let n = book::base_name(h.split('#').next().unwrap_or(""));
                 n != page.name && book.spine.iter().any(|p| p.name == n)
             })
             .collect();
@@ -256,7 +256,7 @@ fn resolve(entries: &[(String, String)], blocks: &[Block]) -> Vec<(usize, String
     let mut starts: Vec<(usize, String)> = Vec::new();
     for (title, href) in entries {
         let (name, anchor) = href.split_once('#').unwrap_or((href, ""));
-        let name = epub::base_name(name);
+        let name = book::base_name(name);
         let at = blocks.iter().position(|(f, ids, _)| {
             f == name && (anchor.is_empty() || ids.iter().any(|i| i == anchor))
         });
@@ -546,13 +546,13 @@ pub fn chapters(
 mod tests {
     use super::*;
 
-    fn page(name: &str, inner: &str) -> epub::Page {
+    fn page(name: &str, inner: &str) -> book::Page {
         let x = format!(
             r#"<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><body>{inner}</body></html>"#
         );
-        epub::Page {
+        book::Page {
             name: name.into(),
-            body: epub::body(&x).unwrap(),
+            body: book::body(&x).unwrap(),
             is_doc: true,
         }
     }
@@ -658,7 +658,7 @@ mod tests {
         assert_eq!(capitals("HOLT’S PLAN and FBI"), "Holt’s Plan and FBI");
     }
 
-    fn book(spine: Vec<epub::Page>, toc: &[(&str, &str)]) -> Book {
+    fn book(spine: Vec<book::Page>, toc: &[(&str, &str)]) -> Book {
         let toc = toc
             .iter()
             .map(|(a, b)| (a.to_string(), b.to_string()))
