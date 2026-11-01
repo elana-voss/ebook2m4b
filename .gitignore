@@ -1,0 +1,11 @@
+tools/*
+!tools/*.py
+work/
+out/
+books/
+*.mobi
+*.azw
+*.azw3
+*.epub
+target/
+!samples/*.epub

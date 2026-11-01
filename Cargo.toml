@@ -1,0 +1,28 @@
+[package]
+name = "ebook2m4b"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-only"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+html-escape = "0.3.0"
+misaki-rs = { git = "https://github.com/elana-voss/misaki-rs", rev = "10a2cd8b8e11d247962906da3a5d53e17d2adec0" }
+ort = { version = "=2.0.0-rc.13", features = ["cuda", "directml", "load-dynamic"] }
+percent-encoding = "2"
+regex = "1"
+roxmltree = "0.20"
+serde_json = { version = "1", features = ["preserve_order"] }
+sha1 = "0.10"
+sha2 = "0.10"
+ureq = "3"
+whisper-rs = { version = "0.16", features = ["vulkan", "raw-api"] }
+zip = { version = "2", default-features = false, features = ["deflate"] }
+
+# espeak-rs-sys fixed for MSVC, carried in our misaki-rs fork
+[patch.crates-io]
+espeak-rs-sys = { git = "https://github.com/elana-voss/misaki-rs", rev = "10a2cd8b8e11d247962906da3a5d53e17d2adec0" }
+
+[profile.release]
+debug = "line-tables-only"
