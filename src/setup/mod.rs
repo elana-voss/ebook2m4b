@@ -7,10 +7,15 @@
 //! Libraries nothing loads (TensorRT's provider, cuFFTW, NVBLAS) are not unpacked.
 //! Linux: links in the archives are made again, every file taken may be run, and the libraries' folders
 //! are put on LD_LIBRARY_PATH for the programs started later (llama-server, whisper-server).
-use crate::downloads::{Item, Take, items};
+pub mod archive;
+pub mod downloads;
+pub mod hash;
+pub mod http;
+
+use crate::setup::downloads::{Item, Take, items};
 use crate::gpu::Card;
 use crate::os::{Os, THIS};
-use crate::archive::Kind;
+use crate::setup::archive::Kind;
 use anyhow::{Context, Result, bail};
 use std::collections::BTreeMap;
 use std::fs;
@@ -134,12 +139,12 @@ fn in_place(take: &Take, at: &Path, home: &Path) -> bool {
 
 fn download(it: &Item, dest: &Path) -> Result<()> {
     fs::create_dir_all(dest.parent().context("no folder")?)?;
-    let (size, mut reader) = crate::http::get(&it.url)?;
+    let (size, mut reader) = crate::setup::http::get(&it.url)?;
     let name = it.url.rsplit('/').next().unwrap_or(&it.key);
     println!("Downloading {name} ({} MB)", size / 1_000_000);
     let part = dest.with_extension("part");
     let mut file = fs::File::create(&part)?;
-    let mut hash = crate::hash::Sha256::default();
+    let mut hash = crate::setup::hash::Sha256::default();
     let (mut got, mut shown) = (0u64, 0u64);
     let mut buf = vec![0u8; 1 << 20];
     loop {
@@ -198,7 +203,7 @@ fn unpack(os: Os, take: &Take, archive: &Path, home: &Path) -> Result<PathBuf> {
         Take::Member(_, path) => home.join(path),
         Take::File(_) => unreachable!("not an archive"),
     };
-    crate::archive::Archive::open(archive)?.each(|name, kind, bytes| {
+    crate::setup::archive::Archive::open(archive)?.each(|name, kind, bytes| {
         let dest = match take {
             Take::Libs(dir) if kind != Kind::Dir && native_lib(os, name) => {
                 home.join(dir).join(name.rsplit('/').next().unwrap_or(name))
@@ -282,7 +287,7 @@ mod tests {
             "bin/tool.exe",
         ];
         let files: Vec<_> = names.iter().map(|n| (*n, n.as_bytes())).collect();
-        crate::archive::write(&archive, &files);
+        crate::setup::archive::write(&archive, &files);
         unpack(Os::Windows, &Take::Libs("ort"), &archive, &dir).unwrap();
         unpack(Os::Windows, &Take::Tree("data/", "tree"), &archive, &dir).unwrap();
         unpack(Os::Windows, &Take::Member("bin/tool.exe", "t/tool.exe"), &archive, &dir).unwrap();
@@ -344,7 +349,7 @@ mod tests {
             .map(|n| format!("pkg/{n}"))
             .collect();
         let files: Vec<_> = names.iter().map(|n| (n.as_str(), &b"x"[..])).collect();
-        crate::archive::write(&archive, &files);
+        crate::setup::archive::write(&archive, &files);
         unpack(Os::Windows, &Take::Libs("ort"), &archive, &dir).unwrap();
         assert!(dir.join("ort/onnxruntime.dll").exists());
         for name in unused {
@@ -359,7 +364,7 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
         let archive = dir.join("a.nupkg");
         let x64 = &b"x64"[..];
-        crate::archive::write(
+        crate::setup::archive::write(
             &archive,
             &[
                 ("runtimes/win-x64/native/onnxruntime.dll", x64),
@@ -379,7 +384,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("ebook2m4b-linux-{}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
         let archive = dir.join("a.tgz");
-        crate::archive::write_tgz(
+        crate::setup::archive::write_tgz(
             &archive,
             &[
                 ("ort-1/lib/libonnxruntime.so.1.31.1", b"o"),

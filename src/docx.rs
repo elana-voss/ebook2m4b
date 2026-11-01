@@ -9,7 +9,7 @@
 //! is a scene break. A page break (w:pageBreakBefore, w:br type="page") starts a page; a bookmark is an
 //! anchor before its paragraph and an internal hyperlink links it, so that a contents page works;
 //! in a link, what follows a tab (a contents' page number) is left out.
-use crate::archive::Archive;
+use crate::setup::archive::Archive;
 use crate::epub::{Book, Elem, Node};
 use crate::markup::esc;
 use anyhow::{Context, Result};
@@ -270,7 +270,7 @@ mod tests {
         let dir = std::env::temp_dir().join("ebook2m4b-docx-test");
         std::fs::create_dir_all(&dir).unwrap();
         let p = dir.join("b.docx");
-        crate::archive::write(
+        crate::setup::archive::write(
             &p,
             &[
                 ("word/document.xml", doc.as_bytes()),
@@ -329,7 +329,7 @@ mod tests {
         let dir = std::env::temp_dir().join("ebook2m4b-docx-test");
         std::fs::create_dir_all(&dir).unwrap();
         let p = dir.join("c.docx");
-        crate::archive::write(
+        crate::setup::archive::write(
             &p,
             &[
                 ("_rels/.rels", rels.as_bytes()),

@@ -187,7 +187,7 @@ pub fn demo_picks(cs: &[Chunk], seconds: f32) -> Vec<Vec<usize>> {
 pub fn work_id(cs: &[Chunk], speed: f32, version: &Value) -> String {
     let texts: Vec<&str> = cs.iter().map(|c| c.text.as_str()).collect();
     let v = json!([texts, {"speed": speed.to_string(), "pronounce": version}]);
-    crate::hash::json_key(&v)
+    crate::setup::hash::json_key(&v)
 }
 
 /// Speaks the chunks at `picks` not kept in `folder` yet; prints how far it is and, at the end, the

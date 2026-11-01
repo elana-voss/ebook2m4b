@@ -20,22 +20,18 @@
 //! --recheck <unsure.txt> speaks and hears the book's listed passages again (speak::recheck) and prints
 //! each as "chunk TAB error listed TAB error now TAB heard TAB text", then "unsure: k of n" (tools/unsure_recheck.py).
 //! Before --recheck and before speaking, the book's invented words are settled (sounds::settle, work/sounds.json).
-mod archive;
 mod assemble;
 mod chunks;
 mod clean;
 mod docx;
-mod downloads;
 #[cfg(windows)]
 mod ear;
 mod epub;
 mod extract;
 mod fb2;
 mod gpu;
-mod hash;
 mod heat;
 mod html;
-mod http;
 mod judge;
 mod kf8;
 mod kokoro;
@@ -46,12 +42,12 @@ mod mobi;
 mod onnx;
 mod os;
 mod pronounce;
-mod setup;
 mod sounds;
 mod speak;
 mod whisper;
 mod words;
 
+mod setup;
 use anyhow::{Context, Result, bail};
 use clap::Parser;
 use std::cell::RefCell;

@@ -14,7 +14,7 @@ const PORT: u16 = 8931;
 
 pub enum Ear {
     /// held only to stop the server when the Ear is dropped
-    Server(#[allow(dead_code)] crate::http::Served),
+    Server(#[allow(dead_code)] crate::setup::http::Served),
     #[cfg(windows)]
     Built(crate::ear::WhisperState),
 }
@@ -44,7 +44,7 @@ impl Ear {
     pub fn hear(&mut self, wav: &[f32], hint: &str) -> Result<String> {
         match self {
             Ear::Server(_) => {
-                let body = crate::http::post_form(
+                let body = crate::setup::http::post_form(
                     &format!("http://127.0.0.1:{PORT}/inference"),
                     &[
                         ("response_format", "json"),
@@ -73,12 +73,12 @@ impl Ear {
 }
 
 /// whisper.cpp's server on PORT, once it answers (http::serve, at most 60 s).
-fn start(exe: &Path, model: &Path) -> Result<crate::http::Served> {
+fn start(exe: &Path, model: &Path) -> Result<crate::setup::http::Served> {
     let args = ["-m", &model.to_string_lossy(), "--port", &PORT.to_string()]
         .into_iter()
         .chain(["-t", "4", "-l", "en"])
         .map(String::from)
         .collect::<Vec<_>>();
     let url = format!("http://127.0.0.1:{PORT}/");
-    crate::http::serve(exe, &args, &url, Duration::from_secs(60))
+    crate::setup::http::serve(exe, &args, &url, Duration::from_secs(60))
 }

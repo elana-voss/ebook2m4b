@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# whisper.cpp's server for Linux with CUDA, the program setup fetches there (src/downloads.rs): upstream
+# whisper.cpp's server for Linux with CUDA, the program setup fetches there (src/setup/downloads.rs): upstream
 # publishes a CUDA build for Windows only. Usage: whisper_server_build.sh <whisper.cpp's tag> [work folder].
 # Run by .github/workflows/whisper-server.yml. Without root it fetches NVIDIA's CUDA compiler (nvcc, cudart,
 # culibos, crt, nvvm, cccl) and cuBLAS (the same versions as setup's libraries) and whisper.cpp at the tag;

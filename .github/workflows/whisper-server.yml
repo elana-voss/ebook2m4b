@@ -1,5 +1,5 @@
 # whisper.cpp's server for Linux with CUDA (upstream publishes one for Windows only), built once and published
-# as a release file that setup fetches by its hash (src/downloads.rs). On a pushed tag whisper-server-<whisper.cpp's
+# as a release file that setup fetches by its hash (src/setup/downloads.rs). On a pushed tag whisper-server-<whisper.cpp's
 # tag>, so only when whisper.cpp is updated; then the new URL and hash go into downloads.rs. Ubuntu 24.04 as the
 # release's Linux job, for the same glibc. Never the repository's latest release: the README links that one.
 name: whisper-server

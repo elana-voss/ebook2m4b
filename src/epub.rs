@@ -129,7 +129,7 @@ fn xml(text: &str) -> Result<roxmltree::Document<'_>, roxmltree::Error> {
 }
 
 pub fn read(path: &Path) -> Result<Book> {
-    let mut z = crate::archive::Archive::open(path)
+    let mut z = crate::setup::archive::Archive::open(path)
         .with_context(|| format!("{} is no EPUB", path.display()))?;
     let container = z.text("META-INF/container.xml")?;
     let c = xml(&container)?;
@@ -442,7 +442,7 @@ mod read_tests {
             ),
         ];
         let files: Vec<_> = files.iter().map(|(n, t)| (*n, t.as_bytes())).collect();
-        crate::archive::write(&path, &files);
+        crate::setup::archive::write(&path, &files);
         let b = read(&path).unwrap();
         std::fs::remove_file(&path).unwrap(); // the test's own file
         b

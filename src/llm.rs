@@ -59,7 +59,7 @@ pub fn place(home: &Path, found: &BTreeMap<String, PathBuf>) -> Result<Place> {
 pub struct Llm {
     place: Place,
     name: String,
-    server: Option<crate::http::Served>,
+    server: Option<crate::setup::http::Served>,
     cache_file: PathBuf,
     cache: Map<String, Value>,
 }
@@ -92,7 +92,7 @@ impl Llm {
     /// The answer to `user` under `system`, in the shape of `schema`; from the cache when asked before.
     pub fn ask(&mut self, system: &str, user: &str, schema: &Value) -> Result<Value> {
         let key = json!([self.name, system, user, schema]);
-        let key = crate::hash::json_key(&key);
+        let key = crate::setup::hash::json_key(&key);
         if let Some(v) = self.cache.get(&key) {
             return Ok(v.clone());
         }
@@ -115,7 +115,7 @@ impl Llm {
             "response_format": {"type": "json_schema",
                 "json_schema": {"name": "answer", "strict": true, "schema": schema}},
         });
-        let got = crate::http::post_json(
+        let got = crate::setup::http::post_json(
             &format!("{url}/chat/completions"),
             &body.to_string(),
             key.as_deref(),
@@ -162,7 +162,7 @@ fn read_if_there(path: &Path) -> Result<Option<String>> {
 }
 
 /// llama.cpp's server on the GPU, answering on PORT (http::serve, at most 120 s).
-fn start(exe: &Path, gguf: &Path) -> Result<crate::http::Served> {
+fn start(exe: &Path, gguf: &Path) -> Result<crate::setup::http::Served> {
     let out = Command::new(exe)
         .arg("--list-devices")
         .output()
@@ -199,7 +199,7 @@ fn start(exe: &Path, gguf: &Path) -> Result<crate::http::Served> {
     ]
     .map(String::from);
     let health = format!("http://127.0.0.1:{PORT}/health");
-    crate::http::serve(exe, &args, &health, Duration::from_secs(120))
+    crate::setup::http::serve(exe, &args, &health, Duration::from_secs(120))
 }
 
 /// A chat server for tests: answers each request with reply(its body as JSON) as the content, and keeps
