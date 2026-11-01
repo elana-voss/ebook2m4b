@@ -183,12 +183,12 @@ fn kindle_pos(v: &str) -> Option<(usize, usize)> {
     ))
 }
 
-/// A KF8 book (record 0 at `base`): the flows' table, skeleton and fragment indexes, the NCX
+/// A KF8 book: the flows' table, skeleton and fragment indexes, the NCX
 /// pointing at kindle:pos places.
-pub(crate) fn kf8(recs: &[&[u8]], h: &Header, base: usize) -> Result<Book> {
-    let raw = text(recs, h, base)?;
+pub(crate) fn kf8(recs: &[&[u8]], h: &Header) -> Result<Book> {
+    let raw = text(recs, h)?;
     let fdst = recs
-        .get(base + h.fdst as usize)
+        .get(h.fdst as usize)
         .filter(|r| r.get(..4) == Some(b"FDST"));
     let flow = match fdst {
         Some(r) => {
@@ -205,7 +205,7 @@ pub(crate) fn kf8(recs: &[&[u8]], h: &Header, base: usize) -> Result<Book> {
         )
     };
     // a book without its skeleton or fragment index is read as one part (parts())
-    let skel = index(recs, base + h.skel as usize, h.utf8).map_or_else(|_| Vec::new(), |r| r.0);
+    let skel = index(recs, h.skel as usize, h.utf8).map_or_else(|_| Vec::new(), |r| r.0);
     let skels: Vec<_> = skel
         .iter()
         .map(|e| {
@@ -213,7 +213,7 @@ pub(crate) fn kf8(recs: &[&[u8]], h: &Header, base: usize) -> Result<Book> {
             (start, len, two(e, 1).0)
         })
         .collect();
-    let frag = index(recs, base + h.frag as usize, h.utf8).map_or_else(|_| Vec::new(), |r| r.0);
+    let frag = index(recs, h.frag as usize, h.utf8).map_or_else(|_| Vec::new(), |r| r.0);
     let frags: Vec<_> = frag
         .iter()
         .map(|e| {
@@ -224,8 +224,8 @@ pub(crate) fn kf8(recs: &[&[u8]], h: &Header, base: usize) -> Result<Book> {
         })
         .collect();
     let p = parts(flow, &skels, &frags);
-    let toc = if h.ncx != u32::MAX && base + (h.ncx as usize) < recs.len() {
-        ncx(recs, base + h.ncx as usize, h.utf8)?
+    let toc = if h.ncx != u32::MAX && (h.ncx as usize) < recs.len() {
+        ncx(recs, h.ncx as usize, h.utf8)?
     } else {
         Vec::new()
     };

@@ -194,14 +194,14 @@ fn palmdoc(d: &[u8]) -> Vec<u8> {
     o
 }
 
-/// The book's text, `base` the index of its record 0.
-pub(crate) fn text(recs: &[&[u8]], h: &Header, base: usize) -> Result<Vec<u8>> {
+/// The book's text.
+pub(crate) fn text(recs: &[&[u8]], h: &Header) -> Result<Vec<u8>> {
     if h.drm != 0 {
         bail!("the book has DRM");
     }
     let mut huff = match h.compression {
         17480 => {
-            let first = base + h.huff as usize;
+            let first = h.huff as usize;
             let cdics = recs
                 .get(first + 1..first + h.huff_count as usize)
                 .context("the CDIC records lie outside the file")?;
@@ -214,7 +214,7 @@ pub(crate) fn text(recs: &[&[u8]], h: &Header, base: usize) -> Result<Vec<u8>> {
     };
     let mut out = Vec::new();
     // a book with fewer text records than its header says is read as far as they go
-    for rec in recs.iter().skip(base + 1).take(h.text_records) {
+    for rec in recs.iter().skip(1).take(h.text_records) {
         let r = trailing(rec, h.extra_flags);
         match (h.compression, huff.as_mut()) {
             (1, _) => out.extend_from_slice(r),
@@ -574,9 +574,9 @@ pub fn read(path: &Path) -> Result<Book> {
     let h = header(recs.first().context("no records")?)
         .with_context(|| format!("{name} is no mobi"))?;
     if h.version == 8 {
-        return kf8(&recs, &h, 0).with_context(|| format!("{name} cannot be read"));
+        return kf8(&recs, &h).with_context(|| format!("{name} cannot be read"));
     }
-    let raw = text(&recs, &h, 0).with_context(|| format!("{name} cannot be read"))?;
+    let raw = text(&recs, &h).with_context(|| format!("{name} cannot be read"))?;
     let toc_entries: Vec<_> = if h.ncx != u32::MAX && (h.ncx as usize) < recs.len() {
         ncx(&recs, h.ncx as usize, h.utf8)?
             .into_iter()
@@ -741,6 +741,6 @@ mod tests {
             text_records: 2,
             ..Default::default()
         };
-        assert_eq!(text(&[b"r0", b"ab"], &h, 0).unwrap(), b"ab");
+        assert_eq!(text(&[b"r0", b"ab"], &h).unwrap(), b"ab");
     }
 }

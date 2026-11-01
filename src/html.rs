@@ -11,6 +11,12 @@
 //! The page sits in a <div>: epub.rs drops text standing directly in the body before its first
 //! element. It ends with a newline, as in Calibre's pages: epub.rs then adds no "pretty printing"
 //! newlines between a paragraph's inline elements ("( with love )").
+use regex::Regex;
+use std::sync::LazyLock;
+
+static TAG: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"<[^>]*>").expect("a valid pattern"));
+static ID: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#" id="[^"]*""#).expect("a valid pattern"));
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Tok {
@@ -309,8 +315,7 @@ impl Xhtml {
 
     /// Whether the page so far holds any text beyond whitespace.
     pub fn has_text(&self) -> bool {
-        let re = regex::Regex::new(r"<[^>]*>").unwrap();
-        !re.replace_all(&self.page, "").trim().is_empty()
+        !TAG.replace_all(&self.page, "").trim().is_empty()
     }
 
     /// Whether a paragraph, heading or list item is open (a page is not cut inside one).
@@ -328,9 +333,8 @@ impl Xhtml {
         let open = self.open.clone();
         self.close_to(0);
         let page = std::mem::take(&mut self.page);
-        let re = regex::Regex::new(r#" id="[^"]*""#).unwrap();
         for (n, tag) in open {
-            let tag = re.replace(&tag, "").into_owned();
+            let tag = ID.replace(&tag, "").into_owned();
             self.page.push_str(&tag);
             self.open.push((n, tag));
         }
