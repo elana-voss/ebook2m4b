@@ -17,8 +17,6 @@ use serde_json::{Value, json};
 use std::path::Path;
 use std::time::Instant;
 
-/// af_bella at speed 1: a novel of 374,000 characters in 7:04 with its pauses
-const CHARS_PER_SECOND: f32 = 16.0;
 /// a chunk is spoken at most this often
 const TRIES: usize = 3;
 /// a chunk heard with more of its sounds wrong is spoken again
@@ -70,29 +68,6 @@ pub fn recheck(
 /// unsure.txt's line for chunk `i` heard with `err` of its sounds wrong.
 fn unsure_line(i: usize, err: f32, text: &str) -> String {
     format!("{i}\t{err:.2}\t{text}\n")
-}
-
-/// About `seconds` of chunks at the start, the middle and the end, never overlapping: a book too short
-/// for three parts gets its start and end, or its start.
-pub fn demo_picks(cs: &[Chunk], seconds: f32) -> Vec<Vec<usize>> {
-    let (mut k, mut total) = (0, 0.0);
-    while k < cs.len() && total < seconds {
-        total += cs[k].text.chars().count() as f32 / CHARS_PER_SECOND + cs[k].pause;
-        k += 1;
-    }
-    let n = cs.len();
-    let mut starts = vec![0];
-    if n >= 3 * k {
-        starts.push(n / 2 - k / 2);
-    }
-    if n >= 2 * k {
-        starts.push(n - k);
-    }
-    starts.dedup(); // an empty book
-    starts
-        .into_iter()
-        .map(|s| (s..(s + k).min(n)).collect())
-        .collect()
 }
 
 /// What a chunk folder was spoken from: the texts, the speed and the pronunciation (sounds::version).
@@ -191,7 +166,7 @@ pub fn speak_book(
     std::fs::create_dir_all(work)?;
     std::fs::write(&id_file, &id)?;
     let picks: Vec<usize> = if demo {
-        demo_picks(cs, 60.0).concat()
+        crate::speech::chunks::demo_picks(cs, 60.0).concat()
     } else {
         (0..cs.len()).collect()
     };
@@ -332,26 +307,5 @@ mod tests {
         let id = std::fs::read_to_string(work.join("text-id")).ok();
         let _ = std::fs::remove_dir_all(&work); // the test's own folder
         assert!(r.is_err() && id.is_none());
-    }
-
-    #[test]
-    fn demo_picks_take_a_minute_at_start_middle_and_end() {
-        let cs: Vec<Chunk> = (0..100).map(|_| chunk(&"x".repeat(160))).collect(); // 10 s each
-        let p = demo_picks(&cs, 60.0);
-        assert_eq!(p.len(), 3);
-        assert_eq!(p[0], (0..6).collect::<Vec<_>>());
-        assert_eq!(p[1][0], 47);
-        assert_eq!(p[2], (94..100).collect::<Vec<_>>());
-        let few = demo_picks(&cs[..4], 60.0);
-        assert_eq!(few, vec![vec![0, 1, 2, 3]]);
-    }
-
-    #[test]
-    fn demo_parts_never_overlap() {
-        let cs: Vec<Chunk> = (0..18).map(|_| chunk(&"x".repeat(160))).collect(); // 10 s each, 6 to a part
-        let range = |a: usize, b: usize| (a..b).collect::<Vec<_>>();
-        assert_eq!(demo_picks(&cs[..10], 60.0), [range(0, 6)]);
-        assert_eq!(demo_picks(&cs[..14], 60.0), [range(0, 6), range(8, 14)]);
-        assert_eq!(demo_picks(&cs, 60.0), [range(0, 6), range(6, 12), range(12, 18)]);
     }
 }

@@ -221,7 +221,7 @@ pub fn audiobook(
 ) -> Result<()> {
     let file = |i: usize| work.join(format!("{i:06}.wav"));
     let groups: Vec<Part> = if demo {
-        let picks = crate::speech::speak::demo_picks(cs, 60.0);
+        let picks = crate::speech::chunks::demo_picks(cs, 60.0);
         let names: &[&str] = if picks.len() == 2 {
             &["Start", "End"]
         } else {

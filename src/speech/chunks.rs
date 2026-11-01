@@ -12,6 +12,8 @@ use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 
 pub const LIMIT: usize = crate::speech::kokoro::MAX_PHONEMES;
+/// af_bella at speed 1: a novel of 374,000 characters in 7:04 with its pauses
+const CHARS_PER_SECOND: f32 = 16.0;
 const SHORT: usize = 30;
 const SENTENCE: f32 = 0.3;
 const PARAGRAPH: f32 = 0.7;
@@ -199,6 +201,29 @@ pub fn hint(names: &str, text: &str, limit: usize) -> String {
     out
 }
 
+/// About `seconds` of chunks at the start, the middle and the end, never overlapping: a book too short
+/// for three parts gets its start and end, or its start.
+pub fn demo_picks(cs: &[Chunk], seconds: f32) -> Vec<Vec<usize>> {
+    let (mut k, mut total) = (0, 0.0);
+    while k < cs.len() && total < seconds {
+        total += cs[k].text.chars().count() as f32 / CHARS_PER_SECOND + cs[k].pause;
+        k += 1;
+    }
+    let n = cs.len();
+    let mut starts = vec![0];
+    if n >= 3 * k {
+        starts.push(n / 2 - k / 2);
+    }
+    if n >= 2 * k {
+        starts.push(n - k);
+    }
+    starts.dedup(); // an empty book
+    starts
+        .into_iter()
+        .map(|s| (s..(s + k).min(n)).collect())
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -317,5 +342,36 @@ mod tests {
         assert_eq!(hint(names, "He left Ux for Zo-ri-ba.", 14), "Zo-ri-ba, Ux");
         assert_eq!(hint(names, "Nobody.", 10), "Zarl Baker");
         assert_eq!(hint("", "Nobody.", 10), "");
+    }
+
+    /// A chunk of this text, no pause.
+    fn plain(text: &str) -> Chunk {
+        Chunk {
+            chapter: 0,
+            text: text.into(),
+            pause: 0.0,
+            cut: false,
+        }
+    }
+
+    #[test]
+    fn demo_picks_take_a_minute_at_start_middle_and_end() {
+        let cs: Vec<Chunk> = (0..100).map(|_| plain(&"x".repeat(160))).collect(); // 10 s each
+        let p = demo_picks(&cs, 60.0);
+        assert_eq!(p.len(), 3);
+        assert_eq!(p[0], (0..6).collect::<Vec<_>>());
+        assert_eq!(p[1][0], 47);
+        assert_eq!(p[2], (94..100).collect::<Vec<_>>());
+        let few = demo_picks(&cs[..4], 60.0);
+        assert_eq!(few, vec![vec![0, 1, 2, 3]]);
+    }
+
+    #[test]
+    fn demo_parts_never_overlap() {
+        let cs: Vec<Chunk> = (0..18).map(|_| plain(&"x".repeat(160))).collect(); // 10 s each, 6 to a part
+        let range = |a: usize, b: usize| (a..b).collect::<Vec<_>>();
+        assert_eq!(demo_picks(&cs[..10], 60.0), [range(0, 6)]);
+        assert_eq!(demo_picks(&cs[..14], 60.0), [range(0, 6), range(8, 14)]);
+        assert_eq!(demo_picks(&cs, 60.0), [range(0, 6), range(6, 12), range(12, 18)]);
     }
 }
