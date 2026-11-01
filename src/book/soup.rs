@@ -13,9 +13,9 @@
 use regex::Regex;
 use std::sync::LazyLock;
 
-static TAG: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"<[^>]*>").expect("a valid pattern"));
+static TAG: LazyLock<Regex> = LazyLock::new(|| crate::book::re(r"<[^>]*>"));
 static ID: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#" id="[^"]*""#).expect("a valid pattern"));
+    LazyLock::new(|| crate::book::re(r#" id="[^"]*""#));
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Tok {

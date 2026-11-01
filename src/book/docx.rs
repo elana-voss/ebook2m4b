@@ -16,13 +16,6 @@ use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::path::Path;
 
-fn kid<'a>(e: &'a Elem, name: &str) -> Option<&'a Elem> {
-    e.children.iter().find_map(|c| match c {
-        Node::Elem(k) if k.name == name => Some(k),
-        _ => None,
-    })
-}
-
 /// A paragraph style: its heading level (1-9; 0 for "Title"), whether it draws a rule; each, where
 /// the style does not say, its w:basedOn style's.
 #[derive(Clone, Copy, Default)]
@@ -33,16 +26,16 @@ struct Style {
 
 /// Whether paragraph properties draw a border above or below (a rule).
 fn rule(ppr: Option<&Elem>) -> bool {
-    ppr.and_then(|p| kid(p, "pbdr")).is_some_and(|b| {
+    ppr.and_then(|p| p.kid("pbdr")).is_some_and(|b| {
         ["top", "bottom"].iter().any(|s| {
-            kid(b, s).is_some_and(|e| !matches!(e.attr("val"), Some("none" | "nil") | None))
+            b.kid(s).is_some_and(|e| !matches!(e.attr("val"), Some("none" | "nil") | None))
         })
     })
 }
 
 fn styles(xml: &str) -> Result<HashMap<String, Style>> {
     let root = crate::book::tree(xml)?;
-    let heading = regex::Regex::new(r"(?i)^heading ([1-9])$").unwrap();
+    let heading = crate::book::re(r"(?i)^heading ([1-9])$");
     // a style's own level and rule (None: not said) and the style it is based on
     type Own = (Option<usize>, Option<bool>, Option<String>);
     let mut own: HashMap<String, Own> = HashMap::new();
@@ -51,9 +44,9 @@ fn styles(xml: &str) -> Result<HashMap<String, Style>> {
         let Some(id) = s.attr("styleId").filter(|_| s.name == "style") else {
             continue;
         };
-        let name = kid(s, "name").and_then(|n| n.attr("val")).unwrap_or("");
-        let outline = kid(s, "ppr")
-            .and_then(|p| kid(p, "outlinelvl"))
+        let name = s.kid("name").and_then(|n| n.attr("val")).unwrap_or("");
+        let outline = s.kid("ppr")
+            .and_then(|p| p.kid("outlinelvl"))
             .and_then(|o| o.attr("val")?.parse::<usize>().ok());
         let level = if name.eq_ignore_ascii_case("title") {
             Some(0)
@@ -62,9 +55,9 @@ fn styles(xml: &str) -> Result<HashMap<String, Style>> {
         } else {
             outline.filter(|&o| o < 9).map(|o| o + 1)
         };
-        let ppr = kid(s, "ppr");
-        let border = ppr.and_then(|p| kid(p, "pbdr")).map(|_| rule(ppr));
-        let based = kid(s, "basedon")
+        let ppr = s.kid("ppr");
+        let border = ppr.and_then(|p| p.kid("pbdr")).map(|_| rule(ppr));
+        let based = s.kid("basedon")
             .and_then(|b| b.attr("val"))
             .map(String::from);
         own.insert(id.to_string(), (level, border, based));
@@ -140,12 +133,12 @@ fn runs<'a>(e: &'a Elem, p: &mut Para<'a>, link: &mut Option<bool>) {
 }
 
 fn para(e: &Elem, styles: &HashMap<String, Style>, out: &mut String) {
-    let ppr = kid(e, "ppr");
+    let ppr = e.kid("ppr");
     let style = ppr
-        .and_then(|p| kid(p, "pstyle"))
+        .and_then(|p| p.kid("pstyle"))
         .and_then(|s| s.attr("val"));
     let outline = ppr
-        .and_then(|p| kid(p, "outlinelvl"))
+        .and_then(|p| p.kid("outlinelvl"))
         .and_then(|o| o.attr("val")?.parse::<usize>().ok())
         .filter(|&o| o < 9)
         .map(|o| o + 1);
@@ -159,7 +152,7 @@ fn para(e: &Elem, styles: &HashMap<String, Style>, out: &mut String) {
         l => format!("h{}", l.min(4)),
     };
     if ppr
-        .and_then(|p| kid(p, "pagebreakbefore"))
+        .and_then(|p| p.kid("pagebreakbefore"))
         .is_some_and(|b| !matches!(b.attr("val"), Some("0" | "false" | "off")))
     {
         out.push_str("<mbp:pagebreak/>");
@@ -237,7 +230,7 @@ pub fn read(path: &Path) -> Result<Book> {
         }
     } // else no metadata: the file's name is the title
     let mut html = String::new();
-    if let Some(b) = kid(&doc, "body") {
+    if let Some(b) = doc.kid("body") {
         body(b, &styles, &mut html);
     }
     crate::book::htmlbook::book(&html, titles, creators)

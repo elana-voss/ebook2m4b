@@ -7,7 +7,7 @@
 //! read as words. What the rules cannot settle a Judge is asked (judge.rs: a language model).
 //! Each block's text goes through clean.rs, the chapters through misprints.rs.
 use crate::text::clean::clean;
-use crate::book::{self, Book, Elem, Node};
+use crate::book::{self, Book, Elem, Node, re};
 use anyhow::Result;
 use regex::Regex;
 use std::sync::LazyLock;
@@ -33,9 +33,6 @@ const BLOCKS: [&str; 14] = [
 /// characters: a chapter shorter than this before the first longer one is front matter
 const FRONT: usize = 1500;
 
-fn re(s: &str) -> Regex {
-    Regex::new(s).expect("a valid pattern")
-}
 static SKIP: LazyLock<Regex> = LazyLock::new(|| {
     re(
         r"(?i)^(table of )?contents$|^copyright|^index$|^cover$|^title page$|^also by\b|^(list of )?illustrations$|project gutenberg",

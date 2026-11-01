@@ -493,7 +493,7 @@ fn metadata(h: &Header) -> (Vec<String>, Vec<String>) {
         titles
     };
     // "Carroll, Lewis" is "Lewis Carroll"
-    let turn = regex::Regex::new(r"^([^,]+?)\s*,\s+([^,]+)$").unwrap();
+    let turn = crate::book::re(r"^([^,]+?)\s*,\s+([^,]+)$");
     let authors = exth(100)
         .iter()
         .map(|a| turn.replace(a, "$2 $1").into_owned())
@@ -543,8 +543,7 @@ pub(crate) fn book(
         .enumerate()
         .map(|(i, t)| {
             let html = t.replace("href=\"#filepos", "href=\"\u{0}");
-            let html = regex::Regex::new("href=\"\u{0}(\\d+)\"")
-                .unwrap()
+            let html = crate::book::re("href=\"\u{0}(\\d+)\"")
                 .replace_all(&html, |c: &regex::Captures| {
                     let t: usize = c[1].parse().unwrap_or(0);
                     format!(

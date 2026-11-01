@@ -130,7 +130,7 @@ pub fn book(html: &str, titles: Vec<String>, creators: Vec<String>) -> Result<Bo
         }
     }
     pages.push(w.finish());
-    let link = regex::Regex::new(r##"href="#([^"]*)""##).unwrap();
+    let link = crate::book::re(r##"href="#([^"]*)""##);
     let spine = pages
         .iter()
         .enumerate()

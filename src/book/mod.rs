@@ -40,6 +40,22 @@ impl Elem {
         attr(&self.attrs, key)
     }
 
+    /// The children named `name`.
+    pub fn kids<'a>(&'a self, name: &'a str) -> impl Iterator<Item = &'a Elem> {
+        self.children.iter().filter_map(move |c| match c {
+            Node::Elem(k) if k.name == name => Some(k),
+            _ => None,
+        })
+    }
+
+    /// The first child named `name`.
+    pub fn kid<'a>(&'a self, name: &str) -> Option<&'a Elem> {
+        self.children.iter().find_map(|c| match c {
+            Node::Elem(k) if k.name == name => Some(k),
+            _ => None,
+        })
+    }
+
     /// Every string inside, in reading order.
     pub fn strings<'a>(&'a self, out: &mut Vec<&'a str>) {
         for c in &self.children {
@@ -66,6 +82,11 @@ impl Elem {
             }
         }
     }
+}
+
+/// A pattern written in the code.
+pub fn re(s: &str) -> regex::Regex {
+    regex::Regex::new(s).expect("a valid pattern")
 }
 
 /// A key's value among a tag's attributes.
@@ -130,7 +151,7 @@ pub(crate) fn xml(text: &str) -> Result<roxmltree::Document<'_>, roxmltree::Erro
 /// prefix declared on <html> when the page uses it undeclared.
 pub(crate) fn as_xml(text: &str) -> String {
     static ENTITY: std::sync::LazyLock<regex::Regex> =
-        std::sync::LazyLock::new(|| regex::Regex::new(r"&([A-Za-z][A-Za-z0-9]*);").unwrap());
+        std::sync::LazyLock::new(|| re(r"&([A-Za-z][A-Za-z0-9]*);"));
     let mut t = ENTITY
         .replace_all(text, |c: &regex::Captures| match &c[1] {
             "amp" | "lt" | "gt" | "quot" | "apos" => c[0].to_string(),

@@ -12,15 +12,8 @@ use crate::book::text::decode;
 use anyhow::{Context, Result};
 use std::path::Path;
 
-fn kids<'a>(e: &'a Elem, name: &'a str) -> impl Iterator<Item = &'a Elem> {
-    e.children.iter().filter_map(move |c| match c {
-        Node::Elem(k) if k.name == name => Some(k),
-        _ => None,
-    })
-}
-
 fn text_of(e: &Elem, name: &str) -> String {
-    kids(e, name)
+    e.kids(name)
         .next()
         .map_or(String::new(), |k| k.text("").trim().to_string())
 }
@@ -37,7 +30,7 @@ fn title(e: &Elem) -> String {
         }
     }
     let mut out = String::new();
-    for p in kids(e, "p") {
+    for p in e.kids("p") {
         let mut t = String::new();
         plain(p, &mut t);
         let t = t.split_whitespace().collect::<Vec<_>>().join(" ");
@@ -91,8 +84,8 @@ pub fn read(path: &Path) -> Result<Book> {
     let b = std::fs::read(path).with_context(|| path.display().to_string())?;
     let root =
         crate::book::tree(&decode(&b)).with_context(|| format!("{} is no FB2", path.display()))?;
-    let info = kids(&root, "description")
-        .flat_map(|d| kids(d, "title-info"))
+    let info = root.kids("description")
+        .flat_map(|d| d.kids("title-info"))
         .next();
     let titles: Vec<String> = info
         .map(|i| text_of(i, "book-title"))
@@ -101,7 +94,7 @@ pub fn read(path: &Path) -> Result<Book> {
         .collect();
     let creators = info
         .into_iter()
-        .flat_map(|i| kids(i, "author"))
+        .flat_map(|i| i.kids("author"))
         .map(|a| {
             let names: Vec<String> = ["first-name", "middle-name", "last-name"]
                 .iter()
@@ -117,7 +110,7 @@ pub fn read(path: &Path) -> Result<Book> {
         .filter(|a| !a.is_empty())
         .collect();
     let mut html = String::new();
-    for body in kids(&root, "body").filter(|b| b.attr("name").is_none()) {
+    for body in root.kids("body").filter(|b| b.attr("name").is_none()) {
         walk(body, &mut html);
     }
     crate::book::htmlbook::book(&html, titles, creators)

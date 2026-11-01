@@ -5,12 +5,9 @@
 //! volume/act/scene and every number as words, and collapses whitespace.
 //! Traps: a year 1100-2099 without a comma is read as a year; what a lookaround would say is checked by
 //! hand (Rust's regex has none).
+use crate::book::re;
 use regex::Regex;
 use std::sync::LazyLock;
-
-fn re(s: &str) -> Regex {
-    Regex::new(s).expect("a valid pattern")
-}
 
 static CP1252_UTF8: LazyLock<Regex> = LazyLock::new(|| re(r"[aâ]€([\x{80}-\x{FFFF}])"));
 static LATIN1_UTF8: LazyLock<Regex> = LazyLock::new(|| re(r"[AÃ]([¡-¿])"));
