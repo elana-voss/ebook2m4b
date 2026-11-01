@@ -184,14 +184,11 @@ pub fn demo_picks(cs: &[Chunk], seconds: f32) -> Vec<Vec<usize>> {
         .collect()
 }
 
-/// t2a.py's work_id with the pronunciation (sounds::version): sha1 of
-/// json.dumps([texts, {"speed": speed, "pronounce": version}]).
+/// What a chunk folder was spoken from: the texts, the speed and the pronunciation (sounds::version).
 pub fn work_id(cs: &[Chunk], speed: f32, version: &Value) -> String {
     let texts: Vec<&str> = cs.iter().map(|c| c.text.as_str()).collect();
-    // as Python prints the float the user typed (0.9, not 0.8999999761581421)
-    let speed: f64 = speed.to_string().parse().unwrap_or(1.0);
-    let v = json!([texts, {"speed": speed, "pronounce": version}]);
-    crate::hash::sha1(crate::llm::py_json(&v, true))
+    let v = json!([texts, {"speed": speed.to_string(), "pronounce": version}]);
+    crate::hash::json_key(&v)
 }
 
 /// Speaks the chunks at `picks` not kept in `folder` yet; prints how far it is and, at the end, the
@@ -440,12 +437,12 @@ mod tests {
     }
 
     #[test]
-    fn the_work_id_is_t2a_pys_with_the_pronunciation() {
-        // python: hashlib.sha1(json.dumps([["Héllo.", "Two"], {"speed": 0.9, "pronounce": 1}]).encode()).hexdigest()
+    fn the_work_id_holds_the_texts_speed_and_pronunciation() {
+        // SHA-256 of [["Héllo.","Two"],{"speed":"0.9","pronounce":1}]
         let cs = [chunk("Héllo."), chunk("Two")];
         assert_eq!(
             work_id(&cs, 0.9, &json!(1)),
-            "37af121ba6cfde4e293f18408d5bd3d8215e902f"
+            "66a4a833b8080294baeb645be9aca8718e13704b22a618efdc997cf8c493cd5a"
         );
         assert_ne!(work_id(&cs, 0.9, &json!(1)), work_id(&cs, 0.9, &json!(2)));
     }

@@ -5,7 +5,7 @@
 //! Trap: the prompts, the items' JSON and the schemas are judge.py's to the byte, so the cache's keys
 //! stay the same (llm.rs's head); a change here asks every question again.
 use crate::extract::Judge;
-use crate::llm::{Llm, py_json};
+use crate::llm::Llm;
 use anyhow::Result;
 use serde_json::{Value, json};
 use std::cell::RefCell;
@@ -68,7 +68,7 @@ impl ModelJudge {
         let schema = answers(item);
         let mut out = Vec::new();
         for batch in items.chunks(BATCH) {
-            let user = py_json(&Value::Array(batch.to_vec()), false);
+            let user = Value::Array(batch.to_vec()).to_string();
             let got = self.0.borrow_mut().ask(system, &user, &schema)?;
             out.extend(got["answers"].as_array().cloned().unwrap_or_default());
         }
@@ -206,8 +206,8 @@ mod tests {
     }
 
     #[test]
-    fn the_questions_are_judge_pys_to_the_byte() {
-        // llm.py's cache keys for judge.py's questions (computed with judge.py, model "m")
+    fn the_questions_stay_the_same_to_the_byte() {
+        // the cache keys of the questions, model "m"
         let (url, _) = fake::server(|_| json!({"answers": [{"word": "thier", "fix": "their"}]}));
         let (j, cache) = judge(url, "keys");
         let got = j
@@ -229,9 +229,9 @@ mod tests {
         assert_eq!(
             keys,
             [
-                "0c3a293d2563ffb94cda23a62e31a1901c44ab1e",
-                "4fd37b2fc6eee2e3a752f28e2e84ac54196608d4",
-                "755b5157ceb01e331465fa99f7710439e75fd0bd"
+                "d3d0a0b1e0615bd50c4c6d133c5104e4e95ed44c3deb1d7ae77de75dcf50f200",
+                "eeaa4cf2406bab33ede9c4757a62eb99541aacd643a4adb6627e056ff38d2007",
+                "5f1e66b6f0201ca6697b3e8b21b1172093dee5f38404020e8ef431f015cbf57f"
             ]
         );
         std::fs::remove_file(cache).unwrap();

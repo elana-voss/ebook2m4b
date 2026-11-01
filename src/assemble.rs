@@ -69,12 +69,6 @@ pub fn read_wav(path: &Path) -> Result<Vec<f32>> {
                     .iter()
                     .map(|s| f32::from_le_bytes(*s))
                     .collect()),
-                Some((1, 1, 16)) => Ok(body
-                    .as_chunks::<2>()
-                    .0
-                    .iter()
-                    .map(|s| f32::from(i16::from_le_bytes(*s)) / 32768.0)
-                    .collect()),
                 f => bail!("{}: a WAV of format {f:?} is not read", path.display()),
             };
         }
@@ -302,18 +296,6 @@ mod tests {
         }
     }
 
-    /// a 16-bit mono WAV as soundfile writes t2a.py's chunks
-    fn pcm16(path: &Path, samples: &[i16]) {
-        let mut b = crate::kokoro::wav(&[], RATE);
-        b[20..22].copy_from_slice(&1u16.to_le_bytes());
-        b[28..32].copy_from_slice(&(RATE * 2).to_le_bytes());
-        b[32..34].copy_from_slice(&2u16.to_le_bytes());
-        b[34..36].copy_from_slice(&16u16.to_le_bytes());
-        b[40..44].copy_from_slice(&(samples.len() as u32 * 2).to_le_bytes());
-        b.extend(samples.iter().flat_map(|s| s.to_le_bytes()));
-        std::fs::write(path, b).unwrap();
-    }
-
     fn probe(out: &Path) -> serde_json::Value {
         let r = Command::new("ffprobe")
             .args([
@@ -350,7 +332,7 @@ mod tests {
     #[test]
     fn chunks_are_joined_with_the_lead_and_their_pauses() {
         let d = tempdir("join");
-        pcm16(&d.join("a.wav"), &[16384, -16384]);
+        std::fs::write(d.join("a.wav"), crate::kokoro::wav(&[0.5, -0.5], RATE)).unwrap();
         std::fs::write(d.join("b.wav"), crate::kokoro::wav(&[0.25], RATE)).unwrap();
         let pieces = [(d.join("a.wav"), 0.5, false), (d.join("b.wav"), 0.0, false)];
         let n = join(&pieces, 1.0, &d.join("j.wav")).unwrap();

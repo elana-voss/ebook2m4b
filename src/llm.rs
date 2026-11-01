@@ -6,10 +6,9 @@
 //! {"url": "https://.../v1", "model": "<name>", "key_env": "<VARIABLE>"}, the key read from that
 //! environment variable, never written down.
 //! The answer is held to a JSON schema (llama.cpp grammar, OpenAI structured output); temperature 0.
-//! Answers are kept in work/llm-cache.json under llm.py's key (SHA-1 of Python's json.dumps of
-//! [model, system, user, schema]), so t2a.py and this program share them and asking again costs nothing.
-//! Trap: the key needs Python's JSON spacing and its \u escapes (py_json) and serde_json's
-//! preserve_order, so objects keep the order they were written in.
+//! Answers are kept in work/llm-cache.json under hash::json_key of [model, system, user, schema], so
+//! asking again costs nothing.
+//! Trap: the key needs serde_json's preserve_order, so objects keep the order they were written in.
 use anyhow::{Context, Result, bail};
 use serde_json::{Map, Value, json};
 use std::collections::BTreeMap;
@@ -93,7 +92,7 @@ impl Llm {
     /// The answer to `user` under `system`, in the shape of `schema`; from the cache when asked before.
     pub fn ask(&mut self, system: &str, user: &str, schema: &Value) -> Result<Value> {
         let key = json!([self.name, system, user, schema]);
-        let key = crate::hash::sha1(py_json(&key, true));
+        let key = crate::hash::json_key(&key);
         if let Some(v) = self.cache.get(&key) {
             return Ok(v.clone());
         }
@@ -103,11 +102,8 @@ impl Llm {
         if let Some(dir) = self.cache_file.parent() {
             std::fs::create_dir_all(dir)?;
         }
-        std::fs::write(
-            &self.cache_file,
-            py_json(&Value::Object(self.cache.clone()), true),
-        )
-        .with_context(|| self.cache_file.display().to_string())?;
+        std::fs::write(&self.cache_file, Value::Object(self.cache.clone()).to_string())
+            .with_context(|| self.cache_file.display().to_string())?;
         Ok(got)
     }
 
@@ -206,54 +202,6 @@ fn start(exe: &Path, gguf: &Path) -> Result<crate::http::Served> {
     crate::http::serve(exe, &args, &health, Duration::from_secs(120))
 }
 
-/// JSON as Python's json.dumps writes it: ", " and ": " between items; ascii: non-ASCII as \uXXXX
-/// (ensure_ascii).
-pub fn py_json(v: &Value, ascii: bool) -> String {
-    let mut out = String::new();
-    write_py(v, ascii, &mut out);
-    out
-}
-
-fn write_py(v: &Value, ascii: bool, out: &mut String) {
-    match v {
-        Value::Array(a) => {
-            out.push('[');
-            for (i, x) in a.iter().enumerate() {
-                if i > 0 {
-                    out.push_str(", ");
-                }
-                write_py(x, ascii, out);
-            }
-            out.push(']');
-        }
-        Value::Object(m) => {
-            out.push('{');
-            for (i, (k, x)) in m.iter().enumerate() {
-                if i > 0 {
-                    out.push_str(", ");
-                }
-                write_py(&Value::String(k.clone()), ascii, out);
-                out.push_str(": ");
-                write_py(x, ascii, out);
-            }
-            out.push('}');
-        }
-        Value::String(_) if ascii => {
-            for c in v.to_string().chars() {
-                if c.is_ascii() && c != '\x7f' {
-                    // Python escapes DEL too
-                    out.push(c);
-                } else {
-                    for u in c.encode_utf16(&mut [0; 2]) {
-                        out.push_str(&format!("\\u{u:04x}"));
-                    }
-                }
-            }
-        }
-        _ => out.push_str(&v.to_string()),
-    }
-}
-
 /// A chat server for tests: answers each request with reply(its body as JSON) as the content, and keeps
 /// each request (headers and body).
 #[cfg(test)]
@@ -341,25 +289,13 @@ mod tests {
         assert_eq!(body["model"], "m");
         assert_eq!(body["response_format"]["json_schema"]["schema"], schema);
         assert_eq!(body["response_format"]["json_schema"]["strict"], true);
-        // llm.py's key and file: sha1 of json.dumps(["m", "sys", "café", {"type": "object"}])
+        // the key: SHA-256 of ["m","sys","café",{"type":"object"}]
         let kept = std::fs::read_to_string(&cache).unwrap();
         assert_eq!(
             kept,
-            r#"{"ba7bdacfdb2a16eb19f9746ebdc5d8edf0e9c0e8": {"answers": []}}"#
+            r#"{"fa357b6f048f6e5364116a9225f8cfad921c0efcda199fce3c483fab02c5352e":{"answers":[]}}"#
         );
         std::fs::remove_file(cache).unwrap();
-    }
-
-    #[test]
-    fn json_as_python_writes_it() {
-        let v = json!({"a": ["é\"\n", 1, true, null], "b": {}});
-        assert_eq!(
-            py_json(&v, true),
-            r#"{"a": ["\u00e9\"\n", 1, true, null], "b": {}}"#
-        );
-        assert_eq!(py_json(&json!(["😀"]), true), r#"["\ud83d\ude00"]"#);
-        assert_eq!(py_json(&json!(["é"]), false), r#"["é"]"#);
-        assert_eq!(py_json(&json!(["a\u{7f}b"]), true), r#"["a\u007fb"]"#);
     }
 
     #[test]

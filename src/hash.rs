@@ -1,8 +1,9 @@
-//! Hex digests, the one module naming sha1 and sha2: SHA-1 for the keys shared with the Python version
-//! (llm.rs's cache, speak.rs's work id), SHA-256 for setup's downloads.
+//! Hex digests, the one module naming sha2: of setup's downloads, and a key of JSON (llm.rs's cache,
+//! speak.rs's work id).
 
-pub fn sha1(data: impl AsRef<[u8]>) -> String {
-    format!("{:x}", <sha1::Sha1 as sha1::Digest>::digest(data))
+/// The SHA-256 of `v` as compact JSON.
+pub fn json_key(v: &serde_json::Value) -> String {
+    format!("{:x}", <sha2::Sha256 as sha2::Digest>::digest(v.to_string()))
 }
 
 /// SHA-256 of what is written to it.
