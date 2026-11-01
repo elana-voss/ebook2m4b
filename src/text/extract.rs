@@ -560,7 +560,7 @@ mod tests {
             assert!(tidy(&[mark.to_string()], &Default::default()).is_empty(), "{mark}");
         }
         let line = "Page by page, she read it.".to_string();
-        assert_eq!(tidy(&[line.clone()], &Default::default()), [line]);
+        assert_eq!(tidy(std::slice::from_ref(&line), &Default::default()), [line]);
     }
 
     #[test]
