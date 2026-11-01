@@ -89,7 +89,8 @@ pub fn post_json(url: &str, body: &str, key: Option<&str>, timeout: Duration) ->
 }
 
 /// POSTs a multipart form to `url`: the text `fields` and one file (`name`, its file name, its bytes);
-/// the answer's body.
+/// the answer's body. Windows' whisper.cpp server only.
+#[cfg(windows)]
 pub fn post_form(
     url: &str,
     fields: &[(&str, &str)],

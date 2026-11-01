@@ -1,7 +1,7 @@
 //! A language model asked for answers in a fixed JSON shape, local or remote (llm.py's port).
 //!
 //! Both speak the OpenAI chat API. Local (the default): llama.cpp's server and Gemma 4 E4B from setup.rs,
-//! on the NVIDIA GPU (another card: its first Vulkan device), started at the first question and stopped
+//! on the NVIDIA GPU (Vulkan on Windows, CUDA on Linux; another card: its first Vulkan device), started at the first question and stopped
 //! by close(). Remote: a file llm.json in the home folder (setup::home) holding
 //! {"url": "https://.../v1", "model": "<name>", "key_env": "<VARIABLE>"}, the key read from that
 //! environment variable, never written down.
@@ -20,7 +20,7 @@ use std::time::Duration;
 const PORT: u16 = 8932;
 
 pub enum Place {
-    /// llama.cpp's server (its .exe) and the model file
+    /// llama.cpp's server (its program) and the model file
     Local { server: PathBuf, gguf: PathBuf },
     Remote {
         url: String,
@@ -52,7 +52,7 @@ pub fn place(home: &Path, found: &BTreeMap<String, PathBuf>) -> Result<Place> {
         .get("llm")
         .context("the language model is not set up")?;
     Ok(Place::Local {
-        server: dir.join("llama-server.exe"),
+        server: dir.join(crate::os::exe(crate::os::THIS, "llama-server")),
         gguf: gguf.clone(),
     })
 }

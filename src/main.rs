@@ -15,7 +15,7 @@
 //! Each book's chunks are spoken into work/<book>/<voice>/ (speak.rs) and heard back by Whisper
 //! (whisper.rs), the doubtful ones in its unsure.txt; then joined into the audiobook (assemble.rs).
 //! A book that fails is reported and the others go on; the run ends with "Not done: ...".
-//! --card other takes the route of a non-NVIDIA card (DirectML, Vulkan) on any machine (its test).
+//! --card other takes the route of a non-NVIDIA card (DirectML, Vulkan) on any Windows machine (its test); Linux refuses it.
 //! --phonemes <file> writes Kokoro's phonemes of each line of <src> (pronounce.rs) and stops.
 //! --words prints each book's words eSpeak speaks, English and invented (sounds::found; tools/pron_survey.py).
 //! --recheck <unsure.txt> speaks and hears the book's listed passages again (speak::recheck) and prints
@@ -26,9 +26,14 @@ mod assemble;
 mod chunks;
 mod clean;
 mod docx;
+mod downloads;
+#[cfg(windows)]
+mod ear;
 mod epub;
 mod extract;
 mod fb2;
+#[cfg(any(unix, test))]
+mod frames;
 mod gpu;
 mod hash;
 mod heat;
@@ -42,6 +47,7 @@ mod markup;
 mod misprints;
 mod mobi;
 mod onnx;
+mod os;
 mod pronounce;
 mod setup;
 mod sounds;

@@ -6,8 +6,8 @@ writes one M4B file per book, with chapters.
 
 ## Requirements
 
-- Windows 10 or 11, 64-bit.
-- A graphics card: NVIDIA (CUDA), or another card through DirectML and Vulkan.
+- Windows 10 or 11, 64-bit, with an NVIDIA card (CUDA) or another card (DirectML and Vulkan).
+- Or Linux, x86-64, with an NVIDIA card and its driver (other cards are not supported on Linux).
 - About 10 GB of free disk for the tools and models (see Quickstart).
 
 ## Build
@@ -24,14 +24,26 @@ cargo build --release
 Put Strawberry Perl's `perl\bin` first on PATH, but not its `c\bin`. The program is
 `target\release\ebook2m4b.exe`.
 
+On Linux you need Rust, gcc and g++, CMake, clang (libclang), perl, make, curl, xz, pkg-config and OpenSSL's
+headers (Debian's libssl-dev), and NVIDIA's CUDA
+compiler with cuBLAS; `tools/linux_build_env.sh` fetches Rust and the CUDA parts without root. Then:
+
+```
+source ~/ebook2m4b-build/env.sh
+cargo build --release
+```
+
+The programs are `target/release/ebook2m4b` and `target/release/ebook2m4b-whisper`; keep them together.
+
 ## Quickstart
 
 ```
 ebook2m4b samples\alice.epub
 ```
 
-The first run downloads the tools and models it needs, about 8.4 GB with an NVIDIA card (9.7 GB
-once unpacked), into `%LOCALAPPDATA%\ebook2m4b`. It shows each download with its size and its
+The first run downloads the tools and models it needs with an NVIDIA card, about 8.4 GB on Windows
+(9.7 GB once unpacked) and 8.0 GB on Linux (9.2 GB once unpacked), into `%LOCALAPPDATA%\ebook2m4b` on Windows and `~/.local/share/ebook2m4b` on Linux
+(`$XDG_DATA_HOME/ebook2m4b` when set). It shows each download with its size and its
 progress in percent. Later runs find everything there and start at once.
 
 The audiobook is written to `out\alice.m4b`; work in progress is kept in `work\`, so an interrupted

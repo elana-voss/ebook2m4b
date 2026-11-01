@@ -4,7 +4,10 @@
 //! the voice's style row at phoneme count - 1, the speed asked for; phonemes Kokoro's vocabulary lacks are
 //! dropped. A chunk without phonemes gives a tenth of a second of silence, as speak.py.
 //! Trap: the CUDA provider's DLLs find cuDNN and cuBLAS through PATH, so new() puts the "ort" folder first on
-//! it; it runs before any other thread reads the environment.
+//! it; it runs before any other thread reads the environment. On Linux the loader reads LD_LIBRARY_PATH only
+//! when a program starts, so new() loads every library of the folder itself first (preload), each visible to
+//! those loaded after it, and ONNX Runtime's CUDA provider then finds them loaded; that provider itself is
+//! left to ONNX Runtime: loaded first, it crashes.
 use anyhow::{Context, Result, bail};
 use ort::session::{Session, builder::GraphOptimizationLevel};
 use ort::value::Tensor;
@@ -35,12 +38,17 @@ impl Kokoro {
         static LOADED: std::sync::Mutex<bool> = std::sync::Mutex::new(false);
         let mut loaded = LOADED.lock().unwrap_or_else(|e| e.into_inner());
         if !*loaded {
-            let path = std::env::var_os("PATH").unwrap_or_default();
-            let mut dirs = vec![ort.to_path_buf()];
-            dirs.extend(std::env::split_paths(&path));
-            // SAFETY: called before any other thread of this program reads the environment
-            unsafe { std::env::set_var("PATH", std::env::join_paths(dirs)?) };
-            ort::init_from(ort.join("onnxruntime.dll"))
+            #[cfg(windows)]
+            {
+                let path = std::env::var_os("PATH").unwrap_or_default();
+                let mut dirs = vec![ort.to_path_buf()];
+                dirs.extend(std::env::split_paths(&path));
+                // SAFETY: called before any other thread of this program reads the environment
+                unsafe { std::env::set_var("PATH", std::env::join_paths(dirs)?) };
+            }
+            #[cfg(unix)]
+            preload(ort)?;
+            ort::init_from(ort.join(crate::os::onnxruntime(crate::os::THIS)))
                 .context("ONNX Runtime could not be loaded")?
                 .commit();
             *loaded = true;
@@ -161,8 +169,48 @@ pub fn wav(samples: &[f32], rate: u32) -> Vec<u8> {
     b
 }
 
+/// Linux: every library in `dir` but ONNX Runtime's providers (preloaded) loaded, globally visible, each kept for the program's life; one whose own
+/// libraries are not loaded yet fails and is tried again in the next round, until a round loads none.
+#[cfg(unix)]
+fn preload(dir: &std::path::Path) -> Result<()> {
+    use libloading::os::unix::{Library, RTLD_GLOBAL, RTLD_NOW};
+    let mut left: Vec<_> = std::fs::read_dir(dir)?
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| preloaded(&p.file_name().unwrap_or_default().to_string_lossy()))
+        .collect();
+    loop {
+        let before = left.len();
+        // SAFETY: NVIDIA's and ONNX Runtime's libraries, whose initialisers only set up themselves
+        left.retain(|p| match unsafe { Library::open(Some(p), RTLD_NOW | RTLD_GLOBAL) } {
+            Ok(lib) => {
+                std::mem::forget(lib); // kept loaded: the CUDA provider uses it
+                false
+            }
+            Err(_) => true, // its own libraries not loaded yet
+        });
+        if left.len() == before {
+            break;
+        }
+    }
+    Ok(())
+}
+
+/// Whether preload loads this file: a library, but not one of ONNX Runtime's providers, whose initialisers
+/// need ONNX Runtime to have loaded them (the CUDA provider's crashes on a null host otherwise).
+#[cfg_attr(not(unix), allow(dead_code))] // tested on both systems
+fn preloaded(name: &str) -> bool {
+    name.contains(".so") && !name.starts_with("libonnxruntime_providers_")
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn onnx_runtime_loads_its_own_providers() {
+        let names = ["libcublas.so.13", "libonnxruntime.so.1", "libonnxruntime_providers_cuda.so", "x.txt"];
+        let kept: Vec<_> = names.into_iter().filter(|n| super::preloaded(n)).collect();
+        assert_eq!(kept, ["libcublas.so.13", "libonnxruntime.so.1"]);
+    }
+
     #[test]
     fn long_phonemes_are_spoken_in_pieces_of_at_most_510() {
         let words: Vec<String> = (0..300).map(|i| format!("w{}", i % 10)).collect();
@@ -189,3 +237,4 @@ mod tests {
         assert_eq!(f32::from_le_bytes(b[48..52].try_into().unwrap()), -1.0);
     }
 }
+

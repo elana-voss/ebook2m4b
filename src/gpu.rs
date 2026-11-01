@@ -1,5 +1,6 @@
 //! Which graphics card runs the models: an NVIDIA card (CUDA) or another one (DirectML and Vulkan).
-//! NVIDIA's driver brings nvidia-smi; a card it lists is taken as NVIDIA.
+//! NVIDIA's driver brings nvidia-smi (on PATH on Windows and on Linux, WSL2 included); a card it lists is taken
+//! as NVIDIA. Linux has the NVIDIA route only: setup (downloads.rs) refuses another card there.
 //! The hidden --card other (main.rs) takes the other route on any machine, to test it where NVIDIA is found.
 use std::process::Command;
 
