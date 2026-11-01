@@ -9,9 +9,9 @@
 //! labels in CNCX). A file holding MOBI 6 and KF8 is read by
 //! its MOBI 6 part; a KF8-only one (azw3, version 8) by kf8.rs, whose kindle:pos links and NCX tag 6
 //! places become anchors as filepos ones do (book()). Text is UTF-8 or cp1252 as the header says.
-use crate::epub::{self, Book, Page};
-use crate::html::{Tok, Xhtml, tokens};
-use crate::kf8::{Huff, kf8};
+use crate::book::epub::{self, Book, Page};
+use crate::book::soup::{Tok, Xhtml, tokens};
+use crate::book::kf8::{Huff, kf8};
 use anyhow::{Context, Result, bail};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;

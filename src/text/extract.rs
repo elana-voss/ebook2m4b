@@ -7,7 +7,7 @@
 //! read as words. What the rules cannot settle a Judge is asked (judge.rs: a language model).
 //! Each block's text goes through clean.rs, the chapters through misprints.rs.
 use crate::text::clean::clean;
-use crate::epub::{self, Book, Elem, Node};
+use crate::book::epub::{self, Book, Elem, Node};
 use anyhow::Result;
 use regex::Regex;
 use std::sync::LazyLock;

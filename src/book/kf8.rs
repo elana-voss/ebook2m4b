@@ -7,8 +7,8 @@
 //! fragment count; fragment tag 6 [1] the length. Without those indexes the flow is one part; an NCX
 //! entry whose tag 6 lies nowhere takes its tag 1 offset. No KF8 guide: contents only from the NCX.
 //! HUFF/CDIC: Huff unpacks a text record; a phrase may itself be coded and is unpacked once.
-use crate::epub::Book;
-use crate::mobi::{Entry, Header, book, index, ncx, text, u16_at, u32_at};
+use crate::book::epub::Book;
+use crate::book::mobi::{Entry, Header, book, index, ncx, text, u16_at, u32_at};
 use anyhow::{Context, Result, bail};
 
 /// HUFF/CDIC: Huffman codes for the phrases of a dictionary (the CDIC records), a phrase perhaps

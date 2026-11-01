@@ -10,8 +10,8 @@
 //! TXT: paragraphs are the lines between blank lines, joined; a file without blank lines has one per
 //! line, or, where lines are indented, one from each indented line on. No contents: extract.rs finds
 //! lines like "Chapter One". HTML: its <title> and <meta name="author">.
-use crate::epub::{self, Book, Page};
-use crate::html::{Tok, Xhtml, tokens, unescape};
+use crate::book::epub::{self, Book, Page};
+use crate::book::soup::{Tok, Xhtml, tokens, unescape};
 use anyhow::{Context, Result};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -62,7 +62,7 @@ pub fn decode(b: &[u8]) -> String {
     }
     match std::str::from_utf8(b) {
         Ok(s) => s.to_string(),
-        Err(_) => crate::mobi::decode(b, false),
+        Err(_) => crate::book::mobi::decode(b, false),
     }
 }
 

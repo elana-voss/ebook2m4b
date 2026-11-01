@@ -399,7 +399,7 @@ mod tests {
                 Tok::End(n) => w.end(&n),
             }
         }
-        let body = crate::epub::body(&w.finish()).unwrap().unwrap();
+        let body = crate::book::epub::body(&w.finish()).unwrap().unwrap();
         assert_eq!(body.text("").trim(), "(with love).");
     }
 
@@ -413,7 +413,7 @@ mod tests {
                 Tok::End(n) => w.end(&n),
             }
         }
-        let body = crate::epub::body(&w.finish()).unwrap().unwrap();
+        let body = crate::book::epub::body(&w.finish()).unwrap().unwrap();
         assert!(body.text("").contains('a'));
     }
 
@@ -454,7 +454,7 @@ mod tests {
                 Tok::End(n) => w.end(&n),
             }
         }
-        let body = crate::epub::body(&w.finish()).unwrap().unwrap();
+        let body = crate::book::epub::body(&w.finish()).unwrap().unwrap();
         assert_eq!(body.text("").trim(), "x");
     }
 

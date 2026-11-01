@@ -6,8 +6,8 @@
 //! joined, ". " where a line ends in a letter or digit) is an h2, an entry of the contents (note
 //! links left out); another title (a poem's, the body's) and a subtitle an h4; p, v (a verse line) and text-author paragraphs; poem, stanza, cite, epigraph a div.
 //! empty-line is nothing: converters write it for a scene break and for a blank line alike.
-use crate::epub::{Book, Elem, Node};
-use crate::markup::{decode, esc};
+use crate::book::epub::{Book, Elem, Node};
+use crate::book::markup::{decode, esc};
 use anyhow::{Context, Result};
 use std::path::Path;
 
@@ -43,7 +43,7 @@ fn title(e: &Elem) -> String {
         if t.is_empty() {
             continue;
         }
-        out = crate::markup::join_title(&out, &t);
+        out = crate::book::markup::join_title(&out, &t);
     }
     out
 }
@@ -89,7 +89,7 @@ fn walk(e: &Elem, out: &mut String) {
 pub fn read(path: &Path) -> Result<Book> {
     let b = std::fs::read(path).with_context(|| path.display().to_string())?;
     let root =
-        crate::epub::tree(&decode(&b)).with_context(|| format!("{} is no FB2", path.display()))?;
+        crate::book::epub::tree(&decode(&b)).with_context(|| format!("{} is no FB2", path.display()))?;
     let info = kids(&root, "description")
         .flat_map(|d| kids(d, "title-info"))
         .next();
@@ -119,7 +119,7 @@ pub fn read(path: &Path) -> Result<Book> {
     for body in kids(&root, "body").filter(|b| b.attr("name").is_none()) {
         walk(body, &mut html);
     }
-    crate::markup::book(&html, titles, creators)
+    crate::book::markup::book(&html, titles, creators)
 }
 
 #[cfg(test)]
@@ -128,7 +128,7 @@ mod tests {
 
     #[test]
     fn only_a_sections_title_is_a_heading() {
-        let body = crate::epub::tree(
+        let body = crate::book::epub::tree(
             r##"<body><title><p>Book</p></title><section><title><p>Chapter One,</p><p>The Lake<a type="note">1</a></p></title><poem><title><p>Song</p></title></poem></section></body>"##,
         )
         .unwrap();
