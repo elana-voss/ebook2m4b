@@ -1,4 +1,4 @@
-//! A language model asked for answers in a fixed JSON shape, local or remote (llm.py's port).
+//! A language model asked for answers in a fixed JSON shape, local or remote.
 //!
 //! Both speak the OpenAI chat API. Local (the default): llama.cpp's server and Gemma 4 E4B from setup.rs,
 //! on the NVIDIA GPU (Vulkan on Windows, CUDA on Linux; another card: its first Vulkan device), started at the first question and stopped
@@ -262,13 +262,13 @@ mod tests {
     fn a_remote_question_goes_as_the_openai_chat_api_and_is_kept() {
         let (url, seen) = fake::server(|_| json!({"answers": []}));
         // SAFETY: a variable only this test reads
-        unsafe { std::env::set_var("T2A_TEST_KEY", "k1") };
+        unsafe { std::env::set_var("EBOOK2M4B_TEST_KEY", "k1") };
         let place = Place::Remote {
             url,
             model: "m".into(),
-            key_env: "T2A_TEST_KEY".into(),
+            key_env: "EBOOK2M4B_TEST_KEY".into(),
         };
-        let cache = std::env::temp_dir().join(format!("t2a-llm-{}.json", std::process::id()));
+        let cache = std::env::temp_dir().join(format!("ebook2m4b-llm-{}.json", std::process::id()));
         let _ = std::fs::remove_file(&cache); // a leftover of an earlier run
         let schema = json!({"type": "object"});
         let mut llm = Llm::new(place, cache.clone()).unwrap();
@@ -300,7 +300,7 @@ mod tests {
 
     #[test]
     fn an_unreadable_cache_or_config_is_an_error_not_an_empty_one() {
-        let dir = std::env::temp_dir().join("t2a-llm-unreadable");
+        let dir = std::env::temp_dir().join("ebook2m4b-llm-unreadable");
         std::fs::create_dir_all(dir.join("llm.json")).unwrap();
         let local = || Place::Local {
             server: "x".into(),

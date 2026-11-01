@@ -1,4 +1,4 @@
-//! A book's chapters as chunks to speak (speak.py's chunks()): whole sentences, at most LIMIT (Kokoro's
+//! A book's chapters as chunks to speak: whole sentences, at most LIMIT (Kokoro's
 //! 510 phonemes, as the caller's length counts them); a sentence longer than that is cut at a `;` or `:`
 //! near its middle, else a comma, else a space, into pieces of about even length, each but the last
 //! marked `cut` (assemble.rs joins it closer). Each chunk carries the pause after it: a sentence's, a paragraph's, a

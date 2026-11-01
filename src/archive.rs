@@ -148,7 +148,7 @@ mod tests {
 
     #[test]
     fn a_gzipped_tar_gives_its_files_and_links() {
-        let dir = std::env::temp_dir().join(format!("t2a-tgz-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("ebook2m4b-tgz-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("a.tgz");
         write_tgz(

@@ -142,7 +142,7 @@ mod tests {
 
     #[test]
     fn sections_titles_notes_and_metadata() {
-        let dir = std::env::temp_dir().join("t2a-fb2-test");
+        let dir = std::env::temp_dir().join("ebook2m4b-fb2-test");
         std::fs::create_dir_all(&dir).unwrap();
         let p = dir.join("b.fb2");
         std::fs::write(
@@ -165,7 +165,7 @@ mod tests {
             b.toc,
             [(
                 "Chapter One. The Lake".to_string(),
-                "part0000.html#t2a-0".to_string()
+                "part0000.html#ebook2m4b-0".to_string()
             )]
         );
         let pages: Vec<String> = b

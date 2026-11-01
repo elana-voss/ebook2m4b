@@ -1,4 +1,4 @@
-//! A book's kept chunks into one audiobook (assemble.py and t2a.py's end of run_book): each chapter's
+//! A book's kept chunks into one audiobook: each chapter's
 //! chunks joined with their pauses into a float WAV in work/<book>/<voice>/, then ffmpeg makes AAC with
 //! chapter marks (an FFMETADATA file; times from the WAVs' sample counts) and the tags; M4B brand for the
 //! book, plain MP4 for the demo's m4a. Output: out/<book>.m4b, out/<book>.demo.m4a (chapters Start, Middle,
@@ -6,7 +6,6 @@
 //! LEAD seconds of silence go before the book's title (chunk 0), in the book and in the demo's start.
 //! A chunk ending inside a sentence (Chunk::cut) meets the next with its own silence trimmed and 0.4 s.
 //! A finished book's work folder is removed; a demo's stays, so the full run reuses its chunks.
-//! Kept chunks are float WAVs (Rust) or 16-bit ones (t2a.py's), both read.
 use crate::chunks::Chunk;
 use anyhow::{Context, Result, bail};
 use std::io::{BufWriter, Seek, SeekFrom, Write};
@@ -425,7 +424,7 @@ mod tests {
     }
 
     fn tempdir(name: &str) -> PathBuf {
-        let d = std::env::temp_dir().join(format!("t2a-assemble-{name}-{}", std::process::id()));
+        let d = std::env::temp_dir().join(format!("ebook2m4b-assemble-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d); // none there is fine
         std::fs::create_dir_all(&d).unwrap();
         d

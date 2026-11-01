@@ -1,8 +1,8 @@
-//! A scan's misprints mended, and the book's own words told (extract.py's _misprints and invented).
+//! A scan's misprints mended, and the book's own words told.
 //!
-//! A word is a run of a-z with no letter, digit, apostrophe or hyphen on either side (Python's WORD):
+//! A word is a run of a-z with no letter, digit, apostrophe or hyphen on either side:
 //! "I'mtired" and "S-four-otwelve" are too mangled to guess. Words are counted in order of first use,
-//! as Python's Counter, since ties and the judge's list follow that order.
+//! since ties and the judge's list follow that order.
 use crate::extract::{Chapter, Judge};
 use crate::words::{compound, known};
 use std::collections::{HashMap, HashSet};

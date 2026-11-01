@@ -272,7 +272,7 @@ mod tests {
 
     #[test]
     fn an_archive_gives_only_what_is_asked_for() {
-        let dir = std::env::temp_dir().join(format!("t2a-unpack-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("ebook2m4b-unpack-{}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
         let archive = dir.join("a.zip");
         let names = [
@@ -312,7 +312,7 @@ mod tests {
 
     #[test]
     fn a_model_patched_by_an_older_patch_is_made_again() {
-        let dir = std::env::temp_dir().join(format!("t2a-stale-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("ebook2m4b-stale-{}", std::process::id()));
         let (key, rel) = gpu_model(Card::Nvidia);
         let old = dir.join("models/kokoro/model-gpu.onnx");
         let now = dir.join(&rel);
@@ -330,7 +330,7 @@ mod tests {
 
     #[test]
     fn the_dlls_nothing_loads_are_not_unpacked() {
-        let dir = std::env::temp_dir().join(format!("t2a-unused-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("ebook2m4b-unused-{}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
         let archive = dir.join("a.zip");
         let unused = [
@@ -355,7 +355,7 @@ mod tests {
 
     #[test]
     fn only_the_x64_dlls_of_a_nuget_package_are_unpacked() {
-        let dir = std::env::temp_dir().join(format!("t2a-nupkg-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("ebook2m4b-nupkg-{}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
         let archive = dir.join("a.nupkg");
         let x64 = &b"x64"[..];
@@ -376,7 +376,7 @@ mod tests {
 
     #[test]
     fn linux_libraries_and_programs_are_taken_with_their_links() {
-        let dir = std::env::temp_dir().join(format!("t2a-linux-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("ebook2m4b-linux-{}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
         let archive = dir.join("a.tgz");
         crate::archive::write_tgz(

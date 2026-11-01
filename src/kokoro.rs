@@ -2,7 +2,7 @@
 //! the primary adapter on another. ONNX Runtime is loaded from the folder setup names for it ("ort" for CUDA, "ort-dml" for DirectML).
 //! Spoken as KPipeline does: the chunk's phonemes (pronounce.rs) in pieces of at most 510, ids padded with 0 at both ends,
 //! the voice's style row at phoneme count - 1, the speed asked for; phonemes Kokoro's vocabulary lacks are
-//! dropped. A chunk without phonemes gives a tenth of a second of silence, as speak.py.
+//! dropped. A chunk without phonemes gives a tenth of a second of silence.
 //! Trap: the CUDA provider's DLLs find cuDNN and cuBLAS through PATH, so new() puts the "ort" folder first on
 //! it; it runs before any other thread reads the environment. On Linux the loader reads LD_LIBRARY_PATH only
 //! when a program starts, so new() loads every library of the folder itself first (preload), each visible to

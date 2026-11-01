@@ -20,7 +20,7 @@ fn temperatures() -> (f32, f32) {
             .args(args)
             .output()
             .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
-            .unwrap_or_default() // no reader: taken as cool, as t2a.py does
+            .unwrap_or_default() // no reader: taken as cool
     };
     let gpu = run(
         "nvidia-smi",
@@ -133,7 +133,7 @@ mod tests {
 
     #[test]
     fn a_cpu_seen_only_by_hwmon_is_read() {
-        let sys = std::env::temp_dir().join(format!("t2a-heat-{}", std::process::id()));
+        let sys = std::env::temp_dir().join(format!("ebook2m4b-heat-{}", std::process::id()));
         let put = |p: &str, s: &str| {
             let f = sys.join(p);
             std::fs::create_dir_all(f.parent().unwrap()).unwrap();

@@ -1,9 +1,9 @@
-//! What the rules cannot decide with confidence, asked of a language model (llm.rs; judge.py's port):
+//! What the rules cannot decide with confidence, asked of a language model (llm.rs):
 //! the intended word for a misprint, whether a piece of a book is read aloud, whether a line is a
 //! chapter heading, an invented word's English respelling (sounds.rs). Questions go in batches of 20; an item the model leaves out keeps the rules'
 //! choice, and extract.rs and misprints.rs check each answer before using it.
-//! Trap: the prompts, the items' JSON and the schemas are judge.py's to the byte, so the cache's keys
-//! stay the same (llm.rs's head); a change here asks every question again.
+//! Trap: the prompts, the items' JSON and the schemas make the cache's keys (llm.rs's head); a change
+//! here asks every question again.
 use crate::extract::Judge;
 use crate::llm::Llm;
 use anyhow::Result;
@@ -156,7 +156,7 @@ mod tests {
 
     fn judge(url: String, name: &str) -> (ModelJudge, std::path::PathBuf) {
         let cache =
-            std::env::temp_dir().join(format!("t2a-judge-{name}-{}.json", std::process::id()));
+            std::env::temp_dir().join(format!("ebook2m4b-judge-{name}-{}.json", std::process::id()));
         let _ = std::fs::remove_file(&cache); // a leftover of an earlier run
         let place = Place::Remote {
             url,

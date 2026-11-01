@@ -1,14 +1,13 @@
 //! Ebooks (mobi, azw3, epub, fb2, docx, txt, html) to audiobooks: `ebook2m4b <book or folder> [options]`
-//! A port of an earlier Python version (t2a.py), whose file formats and cache keys it keeps.
 //!
 //! Kokoro reads with one of its voices (--voice af_bella, the default; English voices start with a_
 //! or b_). One output per book, out/<book>.m4b; a finished book is skipped unless --overwrite;
 //! --demo speaks about a minute at the start, middle and end; --speed 0.9 is a little slower.
 //! The first start fetches what the card needs (setup.rs); the models run on the graphics card only.
 //! Each book's chapters as read go to work/<book>/text.txt, what was changed to changes.txt, its
-//! invented words into work/invented-words.json (a series shares them; t2a.py's format).
+//! invented words into work/invented-words.json (a series shares them).
 //! What the rules cannot settle a language model is asked (judge.rs, llm.rs; local or remote), its
-//! answers kept in work/llm-cache.json (t2a.py's keys).
+//! answers kept in work/llm-cache.json.
 //! Hidden: --text <dir> writes each book's chapters to <dir>/<book>/ instead, without the series'
 //! words, the opening line first, and stops (tools/mobi_compare.py; --no-judge: no model asked). A mobi, azw or azw3 is read by mobi.rs,
 //! an EPUB by epub.rs, an FB2 by fb2.rs, a DOCX by docx.rs, a TXT or HTML by markup.rs.
@@ -86,7 +85,7 @@ struct Args {
     /// folder for the audiobooks
     #[arg(long, default_value = "out")]
     out: PathBuf,
-    /// writes each book's chapters as text into this folder and stops (the comparison with t2a.py)
+    /// writes each book's chapters as text into this folder and stops (the comparison tools)
     #[arg(long, hide = true)]
     text: Option<PathBuf>,
     /// with --text: the judge changes nothing (extract::Unchanged), so that routes compare in seconds
@@ -166,7 +165,7 @@ fn read_book(
     Ok((book, chs))
 }
 
-/// work/invented-words.json: the invented words of every book read so far, sorted, as t2a.py writes it.
+/// work/invented-words.json: the invented words of every book read so far, sorted.
 const SERIES: &str = "work/invented-words.json";
 /// Whisper's prompt of names is at most this long (chunks::hint)
 const HINT_CHARS: usize = 200;
@@ -408,7 +407,7 @@ fn main() -> Result<()> {
             Ok(())
         };
         if let Err(e) = one() {
-            // a book that cannot be read or made; the others go on (t2a.py's)
+            // a book that cannot be read or made; the others go on
             println!("  {e:#}");
             failed.push(name);
         }
@@ -437,7 +436,7 @@ mod tests {
 
     #[test]
     fn a_folder_holds_every_format() {
-        let dir = std::env::temp_dir().join("t2a-targets-test");
+        let dir = std::env::temp_dir().join("ebook2m4b-targets-test");
         std::fs::create_dir_all(&dir).unwrap();
         for f in ["a.fb2", "b.DOCX", "c.txt", "d.htm", "e.epub", "f.jpg"] {
             std::fs::write(dir.join(f), "").unwrap();

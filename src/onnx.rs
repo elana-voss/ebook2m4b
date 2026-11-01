@@ -1,4 +1,4 @@
-//! Kokoro's ONNX export patched for the GPU, as an earlier script, kokoro_gpufix.py, did
+//! Kokoro's ONNX export patched for the GPU
 //! (setup runs it once after the download; the result is
 //! models/kokoro/model-gpu.onnx in the home folder):
 //! - the generator's STFT (no GPU kernel in ONNX Runtime, so it ran on the CPU) becomes a Conv whose filters are
@@ -6,7 +6,7 @@
 //! - the export's atan2 takes an imaginary +0 with a negative real part as pi, as torch does (Greater becomes
 //!   GreaterOrEqual), and its 0/0 in a silent frame 0, not NaN (which made a whole chunk NaN; Rust only);
 //! - the inverse STFT's NonZero/ScatterND division by the window sum becomes a Where over the same mask;
-//! - on another card (DirectML) also kokoro_padfix.py's change (same commit): the three upsampling
+//! - on another card (DirectML) also: the three upsampling
 //!   ConvTranspose nodes get pads 1/0 and no output_padding (same output, which DirectML otherwise refuses).
 //!
 //! Nodes and initializers no graph output needs any more are dropped.
@@ -300,7 +300,7 @@ impl Graph {
         self.nodes.splice(at..=at, new);
     }
 
-    /// STFT as Conv, atan2 as torch's, ScatterND as Where (kokoro_gpufix.py).
+    /// STFT as Conv, atan2 as torch's, ScatterND as Where.
     fn gpufix(&mut self) -> Result<()> {
         self.stft_as_conv()?;
         self.atan2_as_torch()?;
@@ -431,7 +431,7 @@ impl Graph {
         Ok(())
     }
 
-    /// The upsampling ConvTranspose nodes (pads 1/1, output_padding 1) as pads 1/0 (kokoro_padfix.py).
+    /// The upsampling ConvTranspose nodes (pads 1/1, output_padding 1) as pads 1/0.
     fn padfix(&mut self) -> Result<usize> {
         let mut fixed = 0;
         for n in self

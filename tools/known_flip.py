@@ -22,7 +22,7 @@ def save(name):
     lst = SCRATCH / "known-words-list.txt"
     lst.write_text("\n".join(sorted(words)) + "\n", encoding="utf-8")
     out = SCRATCH / f"known-{name}.tsv"
-    env = dict(os.environ, T2A_WORDS=str(lst), T2A_KNOWN=str(out))
+    env = dict(os.environ, EBOOK2M4B_WORDS=str(lst), EBOOK2M4B_KNOWN=str(out))
     cmd = ["cargo", "test", "--release", "-j", "4", "--bin", "ebook2m4b", "known_of_a_word_list", "--",
            "--ignored", "--quiet"]
     r = subprocess.run(cmd, cwd=ROOT, env=env, capture_output=True, text=True)

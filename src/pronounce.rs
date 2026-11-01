@@ -1,5 +1,5 @@
-//! Kokoro's phonemes of a piece of text as Python's KPipeline (lang "a") gives them today, and words.py's
-//! sounds() for the check against Whisper. Our fork of misaki-rs (elana-voss/misaki-rs, by git rev in
+//! Kokoro's phonemes of a piece of text as Kokoro's own KPipeline (lang "a") gives them, and a text's
+//! sounds for the check against Whisper. Our fork of misaki-rs (elana-voss/misaki-rs, by git rev in
 //! Cargo.toml) does the work, as misaki's G2P is set up there: US English, eSpeak for words its
 //! dictionaries lack, nothing left unknown (unk ""). KPipeline makes one piece of up to 510 phonemes, a
 //! chunk's limit (chunks.rs, by length()), so a chunk's phonemes are the whole chunk's.
@@ -128,9 +128,9 @@ impl Pronounce {
         };
     }
 
-    /// The sounds of text without stress marks, spaces or punctuation (words.py's sounds()).
+    /// The sounds of text without stress marks, spaces or punctuation.
     pub fn sounds(&self, text: &str) -> Result<String> {
-        // Hyphens part words as words.py's sounds() does, after a word said as given is marked.
+        // Hyphens part words, after a word said as given is marked.
         let p = self.raw(&self.mark(text).replace('-', " "))?;
         Ok(p.chars()
             .filter(|&c| c.is_alphanumeric() && c != 'ˈ' && c != 'ˌ')

@@ -1,5 +1,5 @@
 //! Whisper hears each spoken chunk back (Whisper large-v3-turbo q8_0, setup's "whisper-model"), in English,
-//! told the book's names as its prompt, as t2a.py's Ear. Windows, an NVIDIA card: whisper.cpp's CUDA server
+//! told the book's names as its prompt. Windows, an NVIDIA card: whisper.cpp's CUDA server
 //! (setup's "whisper-server" folder), started for the book on PORT and killed on drop; another card:
 //! whisper.cpp built in on Vulkan (ear.rs). Linux (NVIDIA only): the program ebook2m4b-whisper beside this one
 //! (src/bin, whisper.cpp built in with CUDA), asked through its stdin and stdout (frames.rs, an answer waited

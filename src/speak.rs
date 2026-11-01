@@ -1,12 +1,12 @@
-//! A book's chunks spoken by Kokoro into work/<book>/<voice>/<n:06>.wav (float WAV, 24 kHz), as t2a.py:
+//! A book's chunks spoken by Kokoro into work/<book>/<voice>/<n:06>.wav (float WAV, 24 kHz):
 //! a kept chunk is not spoken again; work/<book>/<voice>/text-id names the texts, speed and pronunciation
 //! (sounds::version) they were spoken from, another id (or --overwrite) clears the folder; one
 //! not cleared stops the book. The heat wait before each chunk. --demo speaks about a minute at the
-//! start, the middle and the end (t2a.py's demo_picks).
+//! start, the middle and the end.
 //! Each chunk goes to part.wav first, then is renamed: a stopped run leaves no half chunk.
 //! Each new chunk is heard back by Whisper (whisper.rs, told the book's names: `hint` of the chunk's text) and compared by sound
 //! (heard_error); over MAX_ERROR it is spoken again, the best of TRIES kept, and one still over goes into
-//! unsure.txt as "<n> TAB <error> TAB <text>" (t2a.py's). Voice and Whisper are made at the first chunk to speak
+//! unsure.txt as "<n> TAB <error> TAB <text>". Voice and Whisper are made at the first chunk to speak
 //! and leave the GPU when speak_all ends (the language model gets its memory for the next book).
 use crate::chunks::Chunk;
 use crate::kokoro::{self, Kokoro};
@@ -17,7 +17,7 @@ use serde_json::{Value, json};
 use std::path::Path;
 use std::time::Instant;
 
-/// af_bella at speed 1: a novel of 374,000 characters in 7:04 with its pauses (t2a.py)
+/// af_bella at speed 1: a novel of 374,000 characters in 7:04 with its pauses
 const CHARS_PER_SECOND: f32 = 16.0;
 /// a chunk is spoken at most this often
 const TRIES: usize = 3;
@@ -28,7 +28,7 @@ pub const MAX_ERROR: f32 = 0.1;
 const SHORT_LINE: usize = 20;
 
 /// Edit distance of the sounds of what was heard against the text's, over the text's sounds' length
-/// (speak.py's heard_error; numbers as words, as the voice was given them), at least SHORT_LINE. A word
+/// (numbers as words, as the voice was given them), at least SHORT_LINE. A word
 /// Whisper writes in capitals ("MIP") is a word it heard, not letters, so it is lowered before its sounds
 /// are asked. What Whisper hears beyond the text's end is free: it goes on after the voice stopped
 /// (repeats the line, finishes the sentence), the voice reads its phonemes and adds none.
@@ -111,8 +111,7 @@ fn names_as_heard(p: &Pronounce, expected: &str, heard: &str) -> Result<String> 
     Ok(out.into_iter().filter(|w| !w.is_empty()).collect::<Vec<_>>().join(" "))
 }
 
-/// The chunk spoken until heard right, else the best of TRIES; with its error and what was heard
-/// (speak.py's checked).
+/// The chunk spoken until heard right, else the best of TRIES; with its error and what was heard.
 pub fn checked(
     text: &str,
     say: &mut dyn FnMut() -> Result<Vec<f32>>,
@@ -432,7 +431,7 @@ mod tests {
     }
 
     #[test]
-    fn unsure_lines_are_t2a_pys() {
+    fn an_unsure_line_holds_chunk_error_and_text() {
         assert_eq!(unsure_line(12, 0.254, "Zo-ri-ba."), "12\t0.25\tZo-ri-ba.\n");
     }
 
@@ -449,7 +448,7 @@ mod tests {
 
     #[test]
     fn kept_chunks_are_reused_unless_overwrite() {
-        let work = std::env::temp_dir().join(format!("t2a-resume-{}", std::process::id()));
+        let work = std::env::temp_dir().join(format!("ebook2m4b-resume-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&work); // none there is fine
         std::fs::create_dir_all(&work).unwrap();
         let cs = [chunk("One."), chunk("Two.")];
@@ -472,7 +471,7 @@ mod tests {
     #[test]
     fn a_work_folder_not_cleared_stops_the_book() {
         use std::os::windows::fs::OpenOptionsExt;
-        let work = std::env::temp_dir().join(format!("t2a-held-{}", std::process::id()));
+        let work = std::env::temp_dir().join(format!("ebook2m4b-held-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&work); // none there is fine
         std::fs::create_dir_all(&work).unwrap();
         let cs = [chunk("One.")];

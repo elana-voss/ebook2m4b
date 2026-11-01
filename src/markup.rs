@@ -130,7 +130,7 @@ pub fn book(html: &str, titles: Vec<String>, creators: Vec<String>) -> Result<Bo
                 }
                 let heading = head.is_none() && !closed && matches!(n.as_str(), "h1" | "h2" | "h3");
                 if heading && attr(&a, "id").is_none() {
-                    a.push(("id".into(), format!("t2a-{heads}")));
+                    a.push(("id".into(), format!("ebook2m4b-{heads}")));
                     heads += 1;
                 }
                 if let Some(id) = attr(&a, "id") {
@@ -304,7 +304,7 @@ mod tests {
         assert_eq!(
             b.toc,
             [
-                ("Chapter One".to_string(), "part0001.html#t2a-0".to_string()),
+                ("Chapter One".to_string(), "part0001.html#ebook2m4b-0".to_string()),
                 ("Chapter Two".to_string(), "part0003.html#c2".to_string())
             ]
         );
@@ -326,7 +326,7 @@ mod tests {
             b.toc,
             [(
                 "Chapter I The Lake".to_string(),
-                "part0000.html#t2a-1".to_string()
+                "part0000.html#ebook2m4b-1".to_string()
             )]
         );
     }
@@ -344,9 +344,9 @@ mod tests {
             [
                 (
                     "CHAPTER I. The Lake".to_string(),
-                    "part0000.html#t2a-0".to_string()
+                    "part0000.html#ebook2m4b-0".to_string()
                 ),
-                ("CHAPTER II".to_string(), "part0000.html#t2a-2".to_string())
+                ("CHAPTER II".to_string(), "part0000.html#ebook2m4b-2".to_string())
             ]
         );
     }
@@ -384,7 +384,7 @@ mod tests {
 
     #[test]
     fn html_title_and_author() {
-        let dir = std::env::temp_dir().join("t2a-markup-test");
+        let dir = std::env::temp_dir().join("ebook2m4b-markup-test");
         std::fs::create_dir_all(&dir).unwrap();
         let p = dir.join("b.html");
         std::fs::write(
@@ -399,7 +399,7 @@ mod tests {
         );
         assert_eq!(
             b.toc,
-            [("X".to_string(), "part0000.html#t2a-0".to_string())]
+            [("X".to_string(), "part0000.html#ebook2m4b-0".to_string())]
         );
     }
 }

@@ -31,7 +31,7 @@ struct Style {
     rule: bool,
 }
 
-/// Whether paragraph properties draw a border above or below (Calibre's <hr>).
+/// Whether paragraph properties draw a border above or below (a rule).
 fn rule(ppr: Option<&Elem>) -> bool {
     ppr.and_then(|p| kid(p, "pbdr")).is_some_and(|b| {
         ["top", "bottom"].iter().any(|s| {
@@ -267,7 +267,7 @@ mod tests {
             r#"<w:styles {W}><w:style w:type="paragraph" w:styleId="H1"><w:name w:val="heading 1"/></w:style><w:style w:type="paragraph" w:styleId="Chap"><w:name w:val="Chapter"/><w:basedOn w:val="H1"/></w:style><w:style w:type="paragraph" w:styleId="R"><w:name w:val="R"/><w:pPr><w:pBdr><w:bottom w:val="inset"/></w:pBdr></w:pPr></w:style><w:style w:type="paragraph" w:styleId="Title"><w:name w:val="Title"/></w:style></w:styles>"#
         );
         let core = r#"<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>The Book</dc:title><dc:creator>Ann Lee</dc:creator></cp:coreProperties>"#;
-        let dir = std::env::temp_dir().join("t2a-docx-test");
+        let dir = std::env::temp_dir().join("ebook2m4b-docx-test");
         std::fs::create_dir_all(&dir).unwrap();
         let p = dir.join("b.docx");
         crate::archive::write(
@@ -286,8 +286,8 @@ mod tests {
         assert_eq!(
             b.toc,
             [
-                ("Chapter One".to_string(), "part0001.html#t2a-0".to_string()),
-                ("Chapter Two".to_string(), "part0002.html#t2a-1".to_string())
+                ("Chapter One".to_string(), "part0001.html#ebook2m4b-0".to_string()),
+                ("Chapter Two".to_string(), "part0002.html#ebook2m4b-1".to_string())
             ]
         );
         let pages: Vec<String> = b
@@ -326,7 +326,7 @@ mod tests {
             r#"<w:document {W}><w:body><w:p><w:hyperlink w:anchor="b"><w:r><w:t>Go</w:t></w:r></w:hyperlink></w:p><w:p><w:r><w:t>Text</w:t></w:r></w:p><w:bookmarkStart w:id="0" w:name="b"/><w:p><w:r><w:t>self</w:t><w:noBreakHyphen/><w:t>aware</w:t><w:ptab/><w:t>x</w:t></w:r></w:p></w:body></w:document>"#
         );
         let rels = r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="/word/document2.xml"/></Relationships>"#;
-        let dir = std::env::temp_dir().join("t2a-docx-test");
+        let dir = std::env::temp_dir().join("ebook2m4b-docx-test");
         std::fs::create_dir_all(&dir).unwrap();
         let p = dir.join("c.docx");
         crate::archive::write(

@@ -345,7 +345,7 @@ mod tests {
         // once per word: settled words go no trip again
         let mut no_trip = |_: &[(String, String)]| -> Result<Vec<String>> { anyhow::bail!("again") };
         settle(&cs, names, 200, &P, &mut store, &mut no_trip, &mut respell).unwrap();
-        let file = std::env::temp_dir().join(format!("t2a-sounds-{}.json", std::process::id()));
+        let file = std::env::temp_dir().join(format!("ebook2m4b-sounds-{}.json", std::process::id()));
         save(&file, &store).unwrap();
         assert_eq!(load(&file).unwrap(), store);
         let _ = std::fs::remove_file(&file); // a test's leftover

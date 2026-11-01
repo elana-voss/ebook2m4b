@@ -1,4 +1,4 @@
-//! From an ebook to clean chapters of text: what is read aloud and nothing else (extract.py's port).
+//! From an ebook to clean chapters of text: what is read aloud and nothing else.
 //!
 //! A book comes as epub.rs's Book (an EPUB read, a mobi by mobi.rs). Chapters are cut where the book's table of
 //! contents points (a file, or an anchor in one), else its own contents page, else lines like "Chapter
@@ -210,7 +210,7 @@ fn blocks(body: &Elem) -> Vec<(Vec<String>, String)> {
             if !text.is_empty() {
                 let mut inner = Vec::new();
                 el.descendants(&mut inner);
-                ids.extend(inner.iter().filter_map(|d| d.attr("id")).map(String::from)); // Calibre puts a heading's anchor inside it
+                ids.extend(inner.iter().filter_map(|d| d.attr("id")).map(String::from)); // a converted book puts a heading's anchor inside it
                 out.push((std::mem::take(&mut ids), text));
             }
         }
@@ -348,7 +348,7 @@ fn starts(
         .collect())
 }
 
-/// "THE LAKE" -> "The Lake" (Python's str.capitalize of a word in capitals).
+/// "THE LAKE" -> "The Lake".
 fn capitalize(w: &str) -> String {
     let mut c = w.chars();
     c.next().map_or(String::new(), |f| {
@@ -616,7 +616,7 @@ mod tests {
             .unwrap(),
         );
         assert_eq!(b[0].0, ["x", "c1"]);
-        assert_eq!(b[1].0, ["c1"]); // the anchor seen again after the heading, as BeautifulSoup walks
+        assert_eq!(b[1].0, ["c1"]); // the anchor seen again after the heading
     }
 
     #[test]

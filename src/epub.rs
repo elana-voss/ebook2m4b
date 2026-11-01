@@ -1,12 +1,12 @@
-//! An EPUB as extract.rs needs it, read the way the Python version's ebooklib and BeautifulSoup see it.
+//! An EPUB as extract.rs needs it.
 //!
 //! Book: the spine's items (documents parsed into a small tree), the table of contents flattened
 //! (the NCX the spine names, the EPUB 3 nav when that gives none), the DC creators and titles.
 //! XML is read with DOCTYPEs allowed; a page's HTML entities are decoded and an undeclared `epub:` declared first.
-//! Traps, each copied on purpose so the text matches extract.py's:
+//! Traps:
 //! - manifest hrefs are percent-decoded, hrefs in the contents and in links are not;
 //! - only the body's children are kept (text before the first is lost);
-//! - a string of ASCII spaces only becomes "\n" if it holds one, else " " (BeautifulSoup), not in <pre>;
+//! - a string of ASCII spaces only becomes "\n" if it holds one, else " ", not in <pre>;
 //! - comments hold no text; a "cover"-properties page has none either.
 use anyhow::{Context, Result, anyhow};
 use std::path::Path;
@@ -45,7 +45,7 @@ impl Elem {
         }
     }
 
-    /// The text inside, strings joined by `sep` (BeautifulSoup's get_text).
+    /// The text inside, strings joined by `sep`.
     pub fn text(&self, sep: &str) -> String {
         let mut v = Vec::new();
         self.strings(&mut v);
@@ -80,7 +80,7 @@ pub struct Book {
     pub titles: Vec<String>,
 }
 
-/// The last part of a path, as Python's Path(p).name (either slash).
+/// The last part of a path (either slash).
 pub fn base_name(p: &str) -> &str {
     p.trim_end_matches(['/', '\\'])
         .rsplit(['/', '\\'])
@@ -189,7 +189,7 @@ pub fn read(path: &Path) -> Result<Book> {
     if let Some((_, href, ..)) = spine_el.attribute("toc").and_then(item) {
         ncx(&z.text(&join(&opf_dir, href))?, &mut toc)?;
     }
-    // ebooklib reads the nav when the NCX gave nothing
+    // the nav when the NCX gave nothing
     if toc.is_empty()
         && let Some((_, href, ..)) = manifest
             .iter()
@@ -303,7 +303,7 @@ fn as_xml(text: &str) -> String {
     t
 }
 
-/// The page's body as the Python version sees it (the head of this file), or None without a body.
+/// The page's body as the head of this file says, or None without a body.
 pub fn body(xhtml: &str) -> Result<Option<Elem>> {
     let text = as_xml(xhtml);
     let doc = xml(&text).map_err(|e| anyhow!("not XHTML: {e}"))?;
@@ -313,7 +313,7 @@ pub fn body(xhtml: &str) -> Result<Option<Elem>> {
     else {
         return Ok(None);
     };
-    // body.text (before its first element or comment) is dropped by ebooklib
+    // body.text (before its first element or comment) is dropped
     let start = b
         .children()
         .position(|c| !c.is_text())
@@ -426,7 +426,7 @@ mod read_tests {
     /// A small EPUB: the package names `ncx` as its toc file and `nav.xhtml` as its nav.
     fn book(name: &str, ncx: &str) -> Book {
         let path =
-            std::env::temp_dir().join(format!("t2a-epub-{}-{name}.epub", std::process::id()));
+            std::env::temp_dir().join(format!("ebook2m4b-epub-{}-{name}.epub", std::process::id()));
         let opf = r#"<?xml version="1.0"?><!DOCTYPE package><package xmlns="http://www.idpf.org/2007/opf" version="3.0"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>T</dc:title></metadata><manifest><item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/><item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/><item id="c1" href="c1.xhtml" media-type="application/xhtml+xml"/></manifest><spine toc="ncx"><itemref idref="c1"/></spine></package>"#;
         let files = [
             (

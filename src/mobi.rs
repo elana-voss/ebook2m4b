@@ -1,11 +1,11 @@
 //! A mobi, azw or azw3 read as an epub::Book, without Calibre, the way Calibre's conversion gives it.
 //!
 //! A Palm database: record 0 holds the PalmDOC and MOBI headers and EXTH (title 503, authors 100,
-//! "Last, First" turned as Calibre does); the text records follow (as many as there are), each with
+//! "Last, First" turned); the text records follow (as many as there are), each with
 //! trailing entries (extra data flags, MOBI 5 on) cut off, then PalmDOC
 //! (LZ77), HUFF/CDIC (kf8.rs) or not compressed; DRM is refused. MOBI 6: the markup is tag soup;
 //! each `filepos=` link target gets an anchor `fileposN` there, the pages are cut at <mbp:pagebreak>
-//! (index_split_NNN.html, as Calibre names them), the contents come from the NCX index (INDX records,
+//! (index_split_NNN.html), the contents come from the NCX index (INDX records,
 //! labels in CNCX), else the links of the guide's toc page. A file holding MOBI 6 and KF8 is read by
 //! its MOBI 6 part; a KF8-only one (azw3, version 8) by kf8.rs, whose kindle:pos links and NCX tag 6
 //! places become anchors as filepos ones do (book()). Text is UTF-8 or cp1252 as the header says.
@@ -135,7 +135,7 @@ pub(crate) fn decode(b: &[u8], utf8: bool) -> String {
 /// A text record without its trailing entries.
 fn trailing(rec: &[u8], flags: u32) -> &[u8] {
     let mut r = rec;
-    // as Calibre: bit 1's entry lies last, the multibyte bytes (bit 0) before the entries
+    // bit 1's entry lies last, the multibyte bytes (bit 0) before the entries
     for bit in 1..16 {
         if flags & (1 << bit) != 0 {
             // a size written backwards at the end, 7 bits a byte, the last read has the high bit
@@ -305,7 +305,7 @@ fn cncx(r: &[u8], k: usize, utf8: bool, out: &mut BTreeMap<u32, String>) {
     }
 }
 
-/// An entry's tag values by the TAGX table (Calibre's get_tag_map).
+/// An entry's tag values by the TAGX table.
 fn tag_values(tags: &[[u8; 4]], control: &[u8], data: &[u8]) -> BTreeMap<u32, Vec<u32>> {
     let mut cb = 0;
     // (tag, value count, value bytes, values per entry)
@@ -510,7 +510,7 @@ fn pages(
                     &mut at_page,
                 );
                 match tok {
-                    // a page without text is not cut off (Calibre's): its anchors open the next
+                    // a page without text is not cut off: its anchors open the next
                     Tok::Start(n, _, _) if n == "pagebreak" => {
                         if w.has_text() {
                             out.push(w.cut())
@@ -541,7 +541,7 @@ fn pages(
     (out, at_page)
 }
 
-/// The book's metadata: titles and authors as Calibre takes them.
+/// The book's metadata: titles and authors.
 fn metadata(h: &Header) -> (Vec<String>, Vec<String>) {
     let exth = |t: u32| -> Vec<String> {
         h.exth
@@ -557,7 +557,7 @@ fn metadata(h: &Header) -> (Vec<String>, Vec<String>) {
     } else {
         titles
     };
-    // "Carroll, Lewis" is "Lewis Carroll", as Calibre gives it
+    // "Carroll, Lewis" is "Lewis Carroll"
     let turn = regex::Regex::new(r"^([^,]+?)\s*,\s+([^,]+)$").unwrap();
     let authors = exth(100)
         .iter()

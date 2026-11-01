@@ -1,12 +1,8 @@
-//! English words as Kokoro's text-to-sound step (misaki) knows them (words.py's known and compound).
+//! English words as Kokoro's text-to-sound step (misaki) knows them.
 //!
 //! known() tells a word of the language from a misprint or an invented name. data/known-words.txt is
-//! misaki's US gold and silver dictionaries as words.py's known() looks them up, in lower case: the
-//! lower-case keys of both, and the capitalised keys of gold lowered. Written once from Python (from the
-//! root, after `source env.sh`): uv run python -c "import words; lex = words._g2p().lexicon;
-//! g, s = lex.golds, lex.silvers; L = {k for k in g.keys() | s.keys() if k == k.lower()} |
-//! {k.lower() for k in g if k == k.lower().capitalize()}; open('data/known-words.txt', 'w',
-//! encoding='utf-8', newline='\n').write('\n'.join(sorted(L)) + '\n')"
+//! misaki's US gold and silver dictionaries in lower case: the lower-case keys of both, and the
+//! capitalised keys of gold lowered.
 use std::collections::HashSet;
 use std::sync::LazyLock;
 
@@ -160,11 +156,11 @@ mod tests {
         }
     }
 
-    /// tools/known_flip.py: known() of each word of T2A_WORDS (one a line) into T2A_KNOWN ("word TAB 0|1").
+    /// tools/known_flip.py: known() of each word of EBOOK2M4B_WORDS (one a line) into EBOOK2M4B_KNOWN ("word TAB 0|1").
     #[test]
     #[ignore]
     fn known_of_a_word_list() {
-        let (Ok(i), Ok(o)) = (std::env::var("T2A_WORDS"), std::env::var("T2A_KNOWN")) else { return };
+        let (Ok(i), Ok(o)) = (std::env::var("EBOOK2M4B_WORDS"), std::env::var("EBOOK2M4B_KNOWN")) else { return };
         let words = std::fs::read_to_string(i).unwrap();
         let out: String = words.lines().map(|w| format!("{w}\t{}\n", known(w) as u8)).collect();
         std::fs::write(o, out).unwrap();
