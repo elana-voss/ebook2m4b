@@ -14,7 +14,6 @@ use anyhow::{Context, Result, bail};
 use ort::session::{Session, builder::GraphOptimizationLevel};
 use ort::value::Tensor;
 use std::collections::HashMap;
-use std::path::Path;
 
 pub const MAX_PHONEMES: usize = 510;
 

@@ -221,7 +221,6 @@ pub fn settle(
     if todo.is_empty() {
         return Ok(invented);
     }
-    println!("  {} invented words: the round trip", todo.len());
     let pairs = |said: &dyn Fn(&str) -> Option<String>, words: &[(&str, &str)]| {
         words
             .iter()
