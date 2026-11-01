@@ -8,6 +8,7 @@
 //! when a program starts, so new() loads every library of the folder itself first (preload), each visible to
 //! those loaded after it, and ONNX Runtime's CUDA provider then finds them loaded; that provider itself is
 //! left to ONNX Runtime: loaded first, it crashes.
+use crate::setup::KokoroFiles;
 use crate::speech::wav::RATE;
 use anyhow::{Context, Result, bail};
 use ort::session::{Session, builder::GraphOptimizationLevel};
@@ -25,15 +26,8 @@ pub struct Kokoro {
 }
 
 impl Kokoro {
-    /// `ort` holds onnxruntime.dll and its provider's DLLs; `model` the patched export; `voice` a voice's .bin.
-    pub fn new(
-        ort: &Path,
-        model: &Path,
-        tokenizer: &Path,
-        voice: &Path,
-        cuda: bool,
-        speed: f32,
-    ) -> Result<Kokoro> {
+    pub fn new(files: KokoroFiles, speed: f32) -> Result<Kokoro> {
+        let KokoroFiles { ort, model, tokenizer, voice, cuda } = files;
         // once a run: each book makes its own voice, ONNX Runtime is loaded once
         static LOADED: std::sync::Mutex<bool> = std::sync::Mutex::new(false);
         let mut loaded = LOADED.lock().unwrap_or_else(|e| e.into_inner());

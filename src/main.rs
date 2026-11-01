@@ -239,11 +239,7 @@ fn main() -> Result<()> {
     };
     let tools = setup::ensure(machine::chosen(args.card.as_deref()), &args.voice)?;
     if let Some(out) = &args.phonemes {
-        let data = tools
-            .found
-            .get("espeak-ng-data")
-            .context("eSpeak's data is not set up")?;
-        let p = pronounce::Pronounce::new(data)?;
+        let p = pronounce::Pronounce::new(tools.espeak()?)?;
         let text =
             std::fs::read_to_string(&args.src).with_context(|| args.src.display().to_string())?;
         let lines: Vec<String> = text.lines().map(|l| p.phonemes(l)).collect::<Result<_>>()?;
@@ -266,38 +262,19 @@ fn main() -> Result<()> {
         }
         return Ok(());
     }
-    let route = if tools.card == machine::Card::Nvidia {
-        "CUDA"
-    } else {
-        "DirectML"
-    };
     println!(
-        "Ready on the {route} route: {} pieces in {}.",
+        "Ready on the {} route: {} pieces in {}.",
+        tools.route(),
         tools.found.len(),
         tools.home.display()
     );
-    let piece = |key: &str| {
-        tools
-            .found
-            .get(key)
-            .with_context(|| format!("{key} is not set up"))
-    };
-    let pronounce = pronounce::Pronounce::new(piece("espeak-ng-data")?)?;
+    let pronounce = pronounce::Pronounce::new(tools.espeak()?)?;
     // Chunks are cut before the book's respellings are known, to find its words, and again after, so
     // none passes Kokoro's limit as it is spoken.
     let measure = |t: &str| pronounce.unsettled_length(t);
-    let mut voice = || {
-        kokoro::Kokoro::new(
-            piece("onnxruntime")?,
-            piece(setup::gpu_model(tools.card).0)?,
-            piece("kokoro-tokenizer")?,
-            piece(&format!("voice-{}", args.voice))?,
-            tools.card == machine::Card::Nvidia,
-            args.speed,
-        )
-    };
+    let mut voice = || kokoro::Kokoro::new(tools.kokoro(&args.voice)?, args.speed);
     let mut ear = || whisper::Ear::new(tools.card, &tools.found);
-    let ffmpeg = piece("ffmpeg")?;
+    let ffmpeg = tools.ffmpeg()?;
     let mut series = read_series()?;
     if args.words {
         for src in &books {

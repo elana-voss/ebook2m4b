@@ -54,6 +54,51 @@ pub struct Tools {
     pub found: BTreeMap<String, PathBuf>,
 }
 
+/// What Kokoro is made from: `ort` holds ONNX Runtime and its provider's libraries; `model` the export
+/// patched for this card; `voice` a voice's .bin; `cuda` whether the card is NVIDIA's.
+#[derive(Clone, Copy)]
+pub struct KokoroFiles<'a> {
+    pub ort: &'a Path,
+    pub model: &'a Path,
+    pub tokenizer: &'a Path,
+    pub voice: &'a Path,
+    pub cuda: bool,
+}
+
+impl Tools {
+    fn piece(&self, key: &str) -> Result<&Path> {
+        self.found
+            .get(key)
+            .map(PathBuf::as_path)
+            .with_context(|| format!("{key} is not set up"))
+    }
+
+    /// eSpeak's data folder.
+    pub fn espeak(&self) -> Result<&Path> {
+        self.piece("espeak-ng-data")
+    }
+
+    pub fn ffmpeg(&self) -> Result<&Path> {
+        self.piece("ffmpeg")
+    }
+
+    /// Kokoro's files for this card and `voice` (a voice's name, as af_bella).
+    pub fn kokoro(&self, voice: &str) -> Result<KokoroFiles<'_>> {
+        Ok(KokoroFiles {
+            ort: self.piece("onnxruntime")?,
+            model: self.piece(gpu_model(self.card).0)?,
+            tokenizer: self.piece("kokoro-tokenizer")?,
+            voice: self.piece(&format!("voice-{voice}"))?,
+            cuda: self.card == Card::Nvidia,
+        })
+    }
+
+    /// The route this card takes, as said to the reader.
+    pub fn route(&self) -> &'static str {
+        if self.card == Card::Nvidia { "CUDA" } else { "DirectML" }
+    }
+}
+
 pub fn home() -> Result<PathBuf> {
     crate::machine::home(crate::machine::THIS, |k| std::env::var(k).ok())
 }
@@ -412,5 +457,27 @@ mod tests {
         assert!(!native_lib(Os::Linux, "nvidia/cu13/bin/cudart64_13.dll"));
         assert!(!native_lib(Os::Windows, "nvidia/cu13/lib/libcudart.so.13"));
         assert!(native_lib(Os::Windows, "nvidia/cu13/bin/x64/cudart64_13.dll"));
+    }
+
+    #[test]
+    fn tools_hand_out_their_pieces_by_what_they_are() {
+        let found = ["onnxruntime", "kokoro-gpu", "kokoro-tokenizer", "voice-af_zzz", "espeak-ng-data"]
+            .map(|k| (k.to_string(), PathBuf::from(format!("/{k}"))));
+        let tools = Tools {
+            home: PathBuf::new(),
+            card: Card::Nvidia,
+            found: found.into_iter().collect(),
+        };
+        assert_eq!(tools.espeak().unwrap(), Path::new("/espeak-ng-data"));
+        assert_eq!(tools.route(), "CUDA");
+        let k = tools.kokoro("af_zzz").unwrap();
+        assert!(k.cuda);
+        assert_eq!(k.ort, Path::new("/onnxruntime"));
+        assert_eq!(k.model, Path::new("/kokoro-gpu"));
+        assert_eq!(k.tokenizer, Path::new("/kokoro-tokenizer"));
+        assert_eq!(k.voice, Path::new("/voice-af_zzz"));
+        let missing = tools.ffmpeg().err().unwrap();
+        assert_eq!(missing.to_string(), "ffmpeg is not set up");
+        assert!(tools.kokoro("bm_none").is_err());
     }
 }
