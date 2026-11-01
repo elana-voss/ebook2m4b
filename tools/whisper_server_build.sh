@@ -9,6 +9,11 @@
 set -euo pipefail
 TAG=$1
 B=${2:-$HOME/whisper-server-build}
+# Another tag's checkout left here would be built and packed under this tag's name.
+if [ -d "$B/src" ] && [ "$(git -C "$B/src" describe --tags --exact-match 2>/dev/null)" != "$TAG" ]; then
+    echo "$B/src is another checkout than $TAG: give another work folder" >&2
+    exit 1
+fi
 R=https://developer.download.nvidia.com/compute/cuda/redist
 V=13.4.92
 mkdir -p "$B/dl" "$B/cuda"

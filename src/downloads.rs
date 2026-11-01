@@ -198,4 +198,28 @@ mod tests {
         }
         assert!(items(Os::Linux, Card::Other, "af_bella").is_err());
     }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_server_build_refuses_a_folder_holding_another_checkout() {
+        use std::os::unix::fs::PermissionsExt;
+        let work = std::env::temp_dir().join(format!("ebook2m4b-server-{}", std::process::id()));
+        std::fs::create_dir_all(work.join("src")).unwrap();
+        // no network even if the script went on
+        let curl = work.join("curl");
+        std::fs::write(&curl, "#!/bin/sh
+exit 7
+").unwrap();
+        std::fs::set_permissions(&curl, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let path = format!("{}:{}", work.display(), std::env::var("PATH").unwrap());
+        let out = std::process::Command::new("bash")
+            .args(["tools/whisper_server_build.sh", "b1"])
+            .arg(&work)
+            .env("PATH", path)
+            .output()
+            .unwrap();
+        let said = String::from_utf8_lossy(&out.stderr).into_owned();
+        let _ = std::fs::remove_dir_all(&work); // a temp folder; left behind it harms nothing
+        assert!(!out.status.success() && said.contains("another checkout"), "{said}");
+    }
 }
