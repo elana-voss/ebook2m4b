@@ -2,7 +2,7 @@
 //! sounds() for the check against Whisper. Our fork of misaki-rs (elana-voss/misaki-rs, by git rev in
 //! Cargo.toml) does the work, as misaki's G2P is set up there: US English, eSpeak for words its
 //! dictionaries lack, nothing left unknown (unk ""). KPipeline makes one piece of up to 510 phonemes, a
-//! chunk's limit (chunks.rs, by unmarked()), so a chunk's phonemes are the whole chunk's.
+//! chunk's limit (chunks.rs, by length()), so a chunk's phonemes are the whole chunk's.
 //! Traps: espeak-ng finds its data by PIPER_ESPEAKNG_DATA_DIRECTORY, which new() sets, so it is made
 //! before other threads start; eSpeak is initialised once per process, so its folder cannot change.
 use anyhow::{Context, Result, bail};
@@ -66,9 +66,15 @@ impl Pronounce {
         self.raw(&self.mark(text))
     }
 
-    /// The phonemes of `text` without the words given their own (say_as).
-    pub fn unmarked(&self, text: &str) -> Result<String> {
-        self.raw(text)
+    /// `text`'s length as Kokoro counts it, as it will be spoken; text without phonemes counts its
+    /// characters (about one phoneme each), as chunks() needs a length, not an error.
+    pub fn length(&self, text: &str) -> usize {
+        self.phonemes(text).map_or(text.chars().count(), |p| p.chars().count())
+    }
+
+    /// The same before the book's respellings are settled: what chunks are cut by to ask about them.
+    pub fn unsettled_length(&self, text: &str) -> usize {
+        self.raw(text).map_or(text.chars().count(), |p| p.chars().count())
     }
 
     fn mark(&self, text: &str) -> String {
@@ -135,6 +141,9 @@ impl Pronounce {
 /// `text` with each whole `word` (no letter nor hyphen beside it: not "Ro" of "Ro-Tan") given
 /// `phonemes` by misaki's link: [word](/ps/).
 fn marked(text: &str, word: &str, phonemes: &str) -> String {
+    if word.is_empty() {
+        return text.to_string(); // a hand-edited sounds.json; find("") would never advance
+    }
     let mut out = String::new();
     let mut rest = text;
     while let Some(i) = rest.find(word) {
@@ -204,6 +213,22 @@ pub(crate) mod tests {
         let heard = P.sounds("Zzy-qat ran.").unwrap() + "|" + &P.phonemes("Zzy-qat ran.").unwrap();
         P.say_as("Zzy-qat", None);
         assert!(heard.starts_with("kuɹusɹæn|kˈuɹus"), "{heard}");
+    }
+
+    #[test]
+    fn an_empty_word_changes_nothing() {
+        assert_eq!(marked("some text", "", "x"), "some text");
+    }
+
+    #[test]
+    fn a_chunk_stays_in_the_limit_with_its_respellings() {
+        P.say_as("Zzyqot", Some("kˈuɹus".repeat(40)));
+        let text = "Zzyqot ran on the hill. ".repeat(40);
+        let chs = [crate::extract::Chapter { title: "T".into(), paragraphs: vec![text] }];
+        let cs = crate::chunks::chunks(&chs, &|t| P.length(t));
+        let longest = cs.iter().map(|c| P.phonemes(&c.text).unwrap().chars().count()).max();
+        P.say_as("Zzyqot", None);
+        assert!(longest <= Some(510), "{longest:?}");
     }
 
     #[test]

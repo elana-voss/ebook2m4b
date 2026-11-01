@@ -228,10 +228,15 @@ pub fn audiobook(
 ) -> Result<()> {
     let file = |i: usize| work.join(format!("{i:06}.wav"));
     let groups: Vec<Part> = if demo {
-        let names = ["Start", "Middle", "End"];
-        crate::speak::demo_picks(cs, 60.0)
+        let picks = crate::speak::demo_picks(cs, 60.0);
+        let names: &[&str] = if picks.len() == 2 {
+            &["Start", "End"]
+        } else {
+            &["Start", "Middle", "End"]
+        };
+        picks
             .into_iter()
-            .zip(names)
+            .zip(names.iter().copied())
             .map(|(g, name)| {
                 let lead = if g.first() == Some(&0) { LEAD } else { 0.0 };
                 let mut p: Vec<Piece> =

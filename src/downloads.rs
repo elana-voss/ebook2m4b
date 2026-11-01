@@ -130,13 +130,16 @@ pub fn items(os: Os, card: Card, voice: &str) -> Result<Vec<Item>> {
         item("espeak-ng-data", &format!("{PYPI}/9d/ed/a3d872fbad4f3a3f3db0e8c31768ab14e77cd77306de16b8b20b1e1df7ea/espeakng_loader-0.2.4-py3-none-win_amd64.whl"),
             "41f1e08ac9deda2efd1ea9de0b81dab9f5ae3c4b24284f76533d0a7b1dd7abd7", Take::Tree("espeakng_loader/espeak-ng-data/", "espeak-ng-data")),
     ]);
-    // a voice of the 54 is fetched when first asked for
-    list.push(Item {
-        key: format!("voice-{voice}"),
-        url: format!("{HF}/onnx-community/Kokoro-82M-v1.0-ONNX/resolve/main/voices/{voice}.bin"),
-        sha256: None,
-        take: Take::File(format!("models/kokoro/voices/{voice}.bin")),
-    });
+    // a voice of the 54 is fetched when first asked for; first, as a mistyped one fails on its 404
+    list.insert(
+        0,
+        Item {
+            key: format!("voice-{voice}"),
+            url: format!("{HF}/onnx-community/Kokoro-82M-v1.0-ONNX/resolve/main/voices/{voice}.bin"),
+            sha256: None,
+            take: Take::File(format!("models/kokoro/voices/{voice}.bin")),
+        },
+    );
     Ok(list)
 }
 
@@ -149,10 +152,16 @@ mod tests {
     }
 
     #[test]
+    fn a_mistyped_voice_fails_before_the_big_downloads() {
+        let list = items(Os::Windows, Card::Nvidia, "af_zzz").unwrap();
+        assert_eq!(list[0].key, "voice-af_zzz");
+    }
+
+    #[test]
     fn another_card_gets_directml_and_no_cuda() {
         let list = items(Os::Windows, Card::Other, "bm_george").unwrap();
         let keys = keys(&list);
-        let ort = &list[0];
+        let ort = list.iter().find(|i| i.key == "onnxruntime").unwrap();
         assert!(
             ort.key == "onnxruntime" && ort.url.contains("microsoft.windows.ai.machinelearning")
         );

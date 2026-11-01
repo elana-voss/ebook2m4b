@@ -1,10 +1,12 @@
 //! HTTP, the one module naming ureq: a download as a stream (setup.rs), a JSON post (llm.rs) and a form
 //! with a file (whisper.rs, whisper.cpp's server); a local server started and stopped (serve, Served).
-//! An answer with an error status is an error.
+//! An answer with an error status is an error, a download that stalls too (a read timeout on the stream,
+//! never a limit on the whole: an 8 GB download takes long).
 use anyhow::{Context, Result, bail};
-use std::io::Read;
+use std::io::{self, Read};
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, sync_channel};
 use std::time::{Duration, Instant};
 
 /// A server started by serve(): killed, and waited for, when dropped.
@@ -50,7 +52,45 @@ pub fn serve(exe: &Path, args: &[String], health_url: &str, wait: Duration) -> R
 
 /// The body of `url` as a stream, and its size (0 when the server does not say).
 pub fn get(url: &str) -> Result<(u64, impl Read)> {
+    get_within(url, Duration::from_secs(60))
+}
+
+/// A body read in a thread: ureq's own limits cover the whole body, which an 8 GB download outlasts, so
+/// the wait for each piece is timed here. A stalled thread ends with the program.
+struct Stalling {
+    pieces: Receiver<io::Result<Vec<u8>>>,
+    piece: Vec<u8>,
+    at: usize,
+    stall: Duration,
+    url: String,
+}
+
+impl Read for Stalling {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        if self.at == self.piece.len() {
+            self.piece = match self.pieces.recv_timeout(self.stall) {
+                Ok(piece) => piece?,
+                Err(RecvTimeoutError::Disconnected) => return Ok(0), // its end
+                Err(RecvTimeoutError::Timeout) => {
+                    let what = format!("{}: nothing for {} s", self.url, self.stall.as_secs());
+                    return Err(io::Error::new(io::ErrorKind::TimedOut, what));
+                }
+            };
+            self.at = 0;
+        }
+        let n = buf.len().min(self.piece.len() - self.at);
+        buf[..n].copy_from_slice(&self.piece[self.at..self.at + n]);
+        self.at += n;
+        Ok(n)
+    }
+}
+
+/// get(), an error when the answer's head or the next piece of the body takes longer than `stall`.
+fn get_within(url: &str, stall: Duration) -> Result<(u64, impl Read + use<>)> {
     let resp = ureq::get(url)
+        .config()
+        .timeout_recv_response(Some(stall))
+        .build()
         .call()
         .with_context(|| format!("download {url}"))?;
     let size = resp
@@ -58,9 +98,35 @@ pub fn get(url: &str) -> Result<(u64, impl Read)> {
         .get("content-length")
         .and_then(|v| v.to_str().ok()?.parse().ok())
         .unwrap_or(0);
+    let mut body = resp.into_body().into_with_config().limit(u64::MAX).reader();
+    let (send, pieces) = sync_channel(8);
+    std::thread::spawn(move || {
+        loop {
+            let mut piece = vec![0; 64 * 1024];
+            match body.read(&mut piece) {
+                Ok(0) => break, // dropping `send` tells the reader it is the end
+                Ok(n) => {
+                    piece.truncate(n);
+                    if send.send(Ok(piece)).is_err() {
+                        break; // the reader is gone
+                    }
+                }
+                Err(e) => {
+                    let _ = send.send(Err(e)); // with the reader gone no one is left to tell
+                    break;
+                }
+            }
+        }
+    });
     Ok((
         size,
-        resp.into_body().into_with_config().limit(u64::MAX).reader(),
+        Stalling {
+            pieces,
+            piece: Vec::new(),
+            at: 0,
+            stall,
+            url: url.to_string(),
+        },
     ))
 }
 
@@ -132,6 +198,28 @@ pub fn post_form(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_download_that_stalls_is_an_error_naming_the_url() {
+        use std::io::Write;
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            let (mut s, _) = listener.accept().unwrap();
+            let _ = s.read(&mut [0; 1024]); // the request; its content does not matter
+            let _ = s.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\nabc");
+            std::thread::sleep(Duration::from_secs(30)); // open, sending nothing
+        });
+        let url = format!("http://127.0.0.1:{port}/big.bin");
+        let (size, mut body) = get_within(&url, Duration::from_millis(200)).unwrap();
+        assert_eq!(size, 10);
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(body.read_to_end(&mut Vec::new()).map_err(|e| e.to_string()));
+        });
+        let err = rx.recv_timeout(Duration::from_secs(5)).expect("no hang").unwrap_err();
+        assert!(err.contains("big.bin"), "{err}");
+    }
 
     #[test]
     fn no_server_starts_where_another_answers() {

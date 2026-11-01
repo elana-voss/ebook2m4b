@@ -5,9 +5,7 @@
 //! XML is read with DOCTYPEs allowed; a page's HTML entities are decoded and an undeclared `epub:` declared first.
 //! Traps, each copied on purpose so the text matches extract.py's:
 //! - manifest hrefs are percent-decoded, hrefs in the contents and in links are not;
-//! - only the body's children are kept (text before the first is lost), and the page is "pretty
-//!   printed" as ebooklib does: an element whose parent is so formatted and that has no text child
-//!   gets a newline before each child and after the last, so <p><span>T</span><span>he</span></p> reads "T he";
+//! - only the body's children are kept (text before the first is lost);
 //! - a string of ASCII spaces only becomes "\n" if it holds one, else " " (BeautifulSoup), not in <pre>;
 //! - comments hold no text; a "cover"-properties page has none either.
 use anyhow::{Context, Result, anyhow};
@@ -321,7 +319,7 @@ pub fn body(xhtml: &str) -> Result<Option<Elem>> {
         .position(|c| !c.is_text())
         .unwrap_or(usize::MAX);
     let nodes: Vec<_> = b.children().skip(start).collect();
-    Ok(Some(elem("body".into(), Vec::new(), &nodes, true, false)))
+    Ok(Some(elem("body".into(), Vec::new(), &nodes, false)))
 }
 
 /// An XML document's root element as an Elem (FB2, DOCX): local names, no pretty printing.
@@ -330,27 +328,22 @@ pub fn tree(text: &str) -> Result<Elem> {
     let root = doc.root_element();
     let nodes: Vec<_> = root.children().collect();
     let name = root.tag_name().name().to_lowercase();
-    Ok(elem(name, Vec::new(), &nodes, false, false))
+    Ok(elem(name, Vec::new(), &nodes, false))
 }
 
 fn elem(
     name: String,
     attrs: Vec<(String, String)>,
     nodes: &[roxmltree::Node],
-    parent_formatted: bool,
     pre: bool,
 ) -> Elem {
     let nodes: Vec<_> = nodes
         .iter()
         .filter(|n| n.is_text() || n.is_element() || n.is_comment())
         .collect();
-    let formatted = parent_formatted && !nodes.iter().any(|n| n.is_text());
     let pre = pre || name == "pre" || name == "textarea";
     let mut children = Vec::new();
     for n in &nodes {
-        if formatted {
-            children.push(Node::Text("\n".into()));
-        }
         if n.is_text() {
             let t = n.text().unwrap_or("");
             let blank = t
@@ -375,11 +368,8 @@ fn elem(
                 })
                 .collect();
             let sub: Vec<_> = n.children().collect();
-            children.push(Node::Elem(elem(name, attrs, &sub, formatted, pre)));
+            children.push(Node::Elem(elem(name, attrs, &sub, pre)));
         }
-    }
-    if formatted && !nodes.is_empty() {
-        children.push(Node::Text("\n".into()));
     }
     Elem {
         name,
@@ -397,15 +387,12 @@ mod tests {
     }
 
     #[test]
-    fn pretty_printing_parts_spans_and_keeps_text() {
-        assert_eq!(
-            page("<p><span>T</span><span>he</span></p>").text(""),
-            "\n\nT\nhe\n\n"
-        );
+    fn spans_join_and_text_stays() {
+        assert_eq!(page("<p><span>T</span><span>he</span></p>").text(""), "The");
         assert_eq!(page("<p>x <b>y</b></p>\n<p>z</p>").text(""), "x y\nz");
-        assert_eq!(page("<p>a&nbsp;b</p>").text(""), "\na\u{a0}b\n");
+        assert_eq!(page("<p>a&nbsp;b</p>").text(""), "a\u{a0}b");
         assert_eq!(
-            page(r#"<a epub:type="noteref">1</a>"#).children[1]
+            page(r#"<a epub:type="noteref">1</a>"#).children[0]
                 .clone()
                 .into_elem()
                 .attr("epub:type"),
@@ -481,11 +468,6 @@ mod read_tests {
         let b = body(r#"<html xmlns="http://www.w3.org/1999/xhtml"><body><p epub:type="x">&Agrave;&frac12;&amp;&rsquo;</p></body></html>"#)
             .unwrap()
             .unwrap();
-        assert_eq!(
-            b.text(""),
-            "
-À½&’
-"
-        );
+        assert_eq!(b.text(""), "À½&’");
     }
 }

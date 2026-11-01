@@ -318,10 +318,9 @@ fn main() -> Result<()> {
             .with_context(|| format!("{key} is not set up"))
     };
     let pronounce = pronounce::Pronounce::new(piece("espeak-ng-data")?)?;
-    // A chunk's length as Kokoro counts it: its phonemes before the book's respellings, so the chunks
-    // are the same before and after settle_book; text without phonemes counts its characters (about
-    // one phoneme each), as chunks() needs a length, not an error.
-    let measure = |t: &str| pronounce.unmarked(t).map_or(t.chars().count(), |p| p.chars().count());
+    // Chunks are cut before the book's respellings are known, to find its words, and again after, so
+    // none passes Kokoro's limit as it is spoken.
+    let measure = |t: &str| pronounce.unsettled_length(t);
     let mut voice = || {
         kokoro::Kokoro::new(
             piece("onnxruntime")?,
@@ -389,6 +388,7 @@ fn main() -> Result<()> {
             let cs = chunks::chunks(&all, &measure);
             let names = chunks::book_words(&all, 60);
             let version = settle_book(&cs, &names, &pronounce, &mut voice, &mut ear, &judge)?;
+            let cs = chunks::chunks(&all, &|t| pronounce.length(t));
             speak::speak_book(
                 &work,
                 &cs,

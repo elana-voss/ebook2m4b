@@ -241,6 +241,22 @@ pub fn mend(
     Ok(chs)
 }
 
+/// The 150 characters on each side of the word `w`'s first use in the book.
+fn around(chs: &[Chapter], w: &str) -> String {
+    let (p, at) = chs
+        .iter()
+        .flat_map(|ch| &ch.paragraphs)
+        .find_map(|p| {
+            let at = words(p).into_iter().find(|&(a, b)| &p[a..b] == w)?.0;
+            Some((p, at))
+        })
+        .expect("an asked word is in the book");
+    let c: Vec<char> = p.chars().collect();
+    let i = p[..at].chars().count();
+    let end = (i + w.chars().count() + 150).min(c.len());
+    c[i.saturating_sub(150)..end].iter().collect()
+}
+
 /// The judge asked about the words the rules cannot settle; its answers checked, else the rules' guess.
 fn ask_judge(
     judge: &dyn Judge,
@@ -249,20 +265,9 @@ fn ask_judge(
     ask: &[(String, Option<String>)],
     fix: &mut Vec<(String, String, &str)>,
 ) -> anyhow::Result<()> {
-    let around = |w: &str| {
-        let p = chs
-            .iter()
-            .flat_map(|ch| &ch.paragraphs)
-            .find(|p| words(p).iter().any(|&(a, b)| &p[a..b] == w))
-            .expect("an asked word is in the book");
-        let c: Vec<char> = p.chars().collect();
-        let i = p[..p.find(w).expect("found above")].chars().count();
-        let end = (i + w.chars().count() + 150).min(c.len());
-        c[i.saturating_sub(150)..end].iter().collect::<String>()
-    };
     let cases: Vec<(String, String, Option<String>)> = ask
         .iter()
-        .map(|(w, g)| (w.clone(), around(w), g.clone()))
+        .map(|(w, g)| (w.clone(), around(chs, w), g.clone()))
         .collect();
     // the book's own words, most used first (ties in order of first use)
     let mut keep: Vec<&String> = count
@@ -329,6 +334,13 @@ mod tests {
             title: "One".into(),
             paragraphs: paras.iter().map(|p| p.to_string()).collect(),
         }]
+    }
+
+    #[test]
+    fn the_context_centres_on_the_whole_word() {
+        let long = "a ".repeat(100);
+        let got = around(&ch(&[&format!("Another {long}ther was")]), "ther");
+        assert!(got.ends_with("ther was"), "{got}");
     }
 
     struct Answers(HashMap<String, String>);

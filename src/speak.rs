@@ -161,7 +161,8 @@ fn unsure_line(i: usize, err: f32, text: &str) -> String {
     format!("{i}\t{err:.2}\t{text}\n")
 }
 
-/// About `seconds` of chunks at the start, the middle and the end.
+/// About `seconds` of chunks at the start, the middle and the end, never overlapping: a book too short
+/// for three parts gets its start and end, or its start.
 pub fn demo_picks(cs: &[Chunk], seconds: f32) -> Vec<Vec<usize>> {
     let (mut k, mut total) = (0, 0.0);
     while k < cs.len() && total < seconds {
@@ -169,9 +170,14 @@ pub fn demo_picks(cs: &[Chunk], seconds: f32) -> Vec<Vec<usize>> {
         k += 1;
     }
     let n = cs.len();
-    let mut starts = vec![0, (n / 2).saturating_sub(k / 2), n.saturating_sub(k)];
-    starts.sort();
-    starts.dedup();
+    let mut starts = vec![0];
+    if n >= 3 * k {
+        starts.push(n / 2 - k / 2);
+    }
+    if n >= 2 * k {
+        starts.push(n - k);
+    }
+    starts.dedup(); // an empty book
     starts
         .into_iter()
         .map(|s| (s..(s + k).min(n)).collect())
@@ -499,5 +505,14 @@ mod tests {
         assert_eq!(p[2], (94..100).collect::<Vec<_>>());
         let few = demo_picks(&cs[..4], 60.0);
         assert_eq!(few, vec![vec![0, 1, 2, 3]]);
+    }
+
+    #[test]
+    fn demo_parts_never_overlap() {
+        let cs: Vec<Chunk> = (0..18).map(|_| chunk(&"x".repeat(160))).collect(); // 10 s each, 6 to a part
+        let range = |a: usize, b: usize| (a..b).collect::<Vec<_>>();
+        assert_eq!(demo_picks(&cs[..10], 60.0), [range(0, 6)]);
+        assert_eq!(demo_picks(&cs[..14], 60.0), [range(0, 6), range(8, 14)]);
+        assert_eq!(demo_picks(&cs, 60.0), [range(0, 6), range(6, 12), range(12, 18)]);
     }
 }

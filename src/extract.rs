@@ -43,8 +43,20 @@ static SKIP: LazyLock<Regex> = LazyLock::new(|| {
 });
 static HEADING: LazyLock<Regex> =
     LazyLock::new(|| re(r"(?i)^(chapter|prologue|epilogue|prolegomena|book|part)\b.{0,80}$"));
-/// a scan's page mark, numbers already words
-static PAGE: LazyLock<Regex> = LazyLock::new(|| re(r"(?i)^(end of )?pa+g+e\b"));
+/// the same, of a paragraph in a chapter (SKIP is a chapter's title): a line that only names such a page or notice, not a sentence
+/// that starts with its word ("Copyright is theft, he said."). Numbers are words by then; a year's start
+/// tells it, or the sign, or no sentence's end.
+static NOTICE: LazyLock<Regex> = LazyLock::new(|| {
+    re(
+        r"(?i)^(table of )?contents$|^index$|^cover$|^title page$|^(list of )?illustrations$|^copyright\w*\b.*(©|\(c\)|\b\d{4}\b|\b(nineteen|twenty|two thousand)\b)|^copyright\w*\b[^.!?]*$|^also by\b[^.!?]*$|^[^.!?]*project gutenberg[^.!?]*$",
+    )
+});
+/// a scan's page mark and nothing else, numbers already words: "Page", "page iv", "End of page three of two hundred"
+static PAGE: LazyLock<Regex> = LazyLock::new(|| {
+    re(
+        r"(?i)^(end of )?pa+g+e(\s+([ivxlc]+|\d+|((one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|(thir|four|fif|six|seven|eigh|nine)teen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|and|of)[\s-]*)+))?\W*$",
+    )
+});
 static GUTENBERG_END: LazyLock<Regex> =
     LazyLock::new(|| re(r"(?i)^\W*end of (the )?project gutenberg"));
 static BREAK: LazyLock<Regex> =
@@ -366,17 +378,13 @@ fn tidy(paras: &[String], titles: &std::collections::HashSet<String>) -> Vec<Str
     static ENDS: LazyLock<Regex> = LazyLock::new(|| re(r#"[.!?:;"'’”)\]—-]$"#));
     let mut joined: Vec<String> = Vec::new();
     for t in paras {
-        let t = if is_break(t) {
-            SCENE.to_string()
-        } else {
-            t.trim().to_string()
-        };
+        let t = t.trim().to_string();
         let n = len(&t);
         if t.is_empty()
             || LINK.is_match(&t)
             || n < 60 && PAGE.is_match(&t)
             || titles.contains(&key(&t))
-            || n < 40 && SKIP.is_match(&t)
+            || n < 40 && NOTICE.is_match(&t)
         {
             continue;
         }
@@ -401,17 +409,20 @@ fn tidy(paras: &[String], titles: &std::collections::HashSet<String>) -> Vec<Str
 /// A chapter title as read: "12 THE LAKE" -> "Chapter twelve The Lake"; a word in capitals is a word of
 /// the title, also alone ("ANNA"; Kokoro would spell it).
 fn title(t: &str) -> String {
-    static BARE: LazyLock<Regex> = LazyLock::new(|| re(r"^(?:\d+\b|[IVXLC]+(?:[.:]|$))"));
+    static BARE: LazyLock<Regex> = LazyLock::new(|| re(r"^(?:\d+\b|([IVXLC]+)(?:[.:]|$))"));
+    static ROMAN: LazyLock<Regex> =
+        LazyLock::new(|| re(r"^M{0,3}(CM|CD|D?C{0,3})(XC|XL|L?X{0,3})(IX|IV|V?I{0,3})$"));
     static NAMES: LazyLock<Regex> =
         LazyLock::new(|| re(r"\b(CHAPTER|BOOK|PART|VOLUME|PROLOGUE|EPILOGUE)\b"));
     let mut t = t.trim().to_string();
-    if BARE.is_match(&t) {
+    let bare = BARE.captures(&t).is_some_and(|c| c.get(1).is_none_or(|r| ROMAN.is_match(r.as_str())));
+    if bare {
         t = format!("Chapter {t}"); // a bare number starts it
     }
     let t = clean(&t); // Roman numerals to words
     let t = CAPS_WORD
         .replace_all(&t, |m: &regex::Captures| {
-            if m[0].chars().all(|c| "IVXLCDM".contains(c)) {
+            if ROMAN.is_match(&m[0]) {
                 m[0].to_string() // a Roman numeral clean left ("Chapter II The Lake")
             } else {
                 capitalize(&m[0])
@@ -559,7 +570,38 @@ mod tests {
             "\n<p>One<sup>1</sup> two<br/>three</p>\n<hr/>\n<p><span>W </span>hen</p>\n<p>* * *</p>\n<div><p>in</p></div>\n",
         );
         assert_eq!(t, ["One two three", SCENE, "When", SCENE, "in"]);
-        assert_eq!(texts("<p><span>T</span><span>he</span></p>"), ["T he"]); // pretty printing parts it, as in Python
+        assert_eq!(texts("<p><span>T</span><span>he</span></p>"), ["The"]);
+    }
+
+    #[test]
+    fn only_a_page_mark_is_dropped_as_one() {
+        for mark in ["Page", "page twelve", "PAGE iv", "End of page three of two hundred."] {
+            assert!(tidy(&[mark.to_string()], &Default::default()).is_empty(), "{mark}");
+        }
+        let line = "Page by page, she read it.".to_string();
+        assert_eq!(tidy(&[line.clone()], &Default::default()), [line]);
+    }
+
+    #[test]
+    fn only_a_copyright_notice_is_dropped_as_one() {
+        for notice in [
+            "Copyright",
+            "Copyright page",
+            "Copyright nineteen twenty-three.",
+            "Copyright © the author.",
+            "Copyright (c) the author.",
+            "Also by the author",
+            "The Project Gutenberg eBook",
+        ] {
+            assert!(tidy(&[notice.to_string()], &Default::default()).is_empty(), "{notice}");
+        }
+        for line in [
+            "Copyright is theft, he said.",
+            "Also by the lake, she sat.",
+            "He read Project Gutenberg.",
+        ] {
+            assert_eq!(tidy(&[line.to_string()], &Default::default()), [line]);
+        }
     }
 
     #[test]
@@ -587,7 +629,7 @@ mod tests {
                 "on- ",
                 "ward",
                 SCENE,
-                "* * *",
+                SCENE,
                 "Page 12",
                 "X",
                 SCENE,
@@ -602,6 +644,8 @@ mod tests {
         assert_eq!(title("12 THE LAKE"), "Chapter twelve The Lake");
         assert_eq!(title("CHAPTER One"), "Chapter One");
         assert_eq!(title("IV."), "Chapter four.");
+        assert_eq!(title("CIVIL."), "Civil."); // only IVXLC, yet no numeral
+        assert_eq!(title("XL:"), "Chapter forty:");
         // a lone word in capitals is a title's word, not an acronym (Kokoro would spell "ANNA")
         assert_eq!(title("Chapter Six: ANNA"), "Chapter Six: Anna");
         assert_eq!(title("30 HOLT’S PLAN"), "Chapter thirty Holt’s Plan");
