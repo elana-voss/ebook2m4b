@@ -99,5 +99,5 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          sha256sum ebook2m4b-* > SHA256SUMS
-          gh release create "$GITHUB_REF_NAME" ebook2m4b-* SHA256SUMS --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes
+          sha256sum ebook2m4b-*.zip ebook2m4b-*.tar.gz > SHA256SUMS
+          gh release create "$GITHUB_REF_NAME" ebook2m4b-*.zip ebook2m4b-*.tar.gz SHA256SUMS --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes
