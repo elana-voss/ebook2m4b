@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::Path;
 
-/// A trip passes at a distance of a third of the word's letters or less (tools/pron_survey.py's PASS).
+/// A trip passes at a distance of a third of the word's letters or less.
 pub const PASS: f64 = 1.0 / 3.0;
 
 /// The words settled so far, every book's: {"word": {"say": respelling or null, "espeak": distance,

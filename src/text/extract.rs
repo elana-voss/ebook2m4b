@@ -69,25 +69,6 @@ pub struct Chapter {
     pub paragraphs: Vec<String>,
 }
 
-/// A judge that changes nothing (the tests' stand-in; --no-judge for comparing readers).
-pub struct Unchanged;
-
-impl Judge for Unchanged {
-    fn headings(&self, items: &[(String, String)]) -> Result<Vec<bool>> {
-        Ok(vec![true; items.len()])
-    }
-    fn read(&self, items: &[(String, String)]) -> Result<Vec<bool>> {
-        Ok(vec![true; items.len()])
-    }
-    fn misprints(
-        &self,
-        cases: &[(String, String, Option<String>)],
-        _: &[String],
-    ) -> Result<std::collections::HashMap<String, String>> {
-        Ok(cases.iter().map(|c| (c.0.clone(), c.0.clone())).collect())
-    }
-}
-
 fn len(s: &str) -> usize {
     s.chars().count()
 }
@@ -526,6 +507,25 @@ pub fn chapters(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A judge that changes nothing.
+    struct Unchanged;
+
+    impl Judge for Unchanged {
+        fn headings(&self, items: &[(String, String)]) -> Result<Vec<bool>> {
+            Ok(vec![true; items.len()])
+        }
+        fn read(&self, items: &[(String, String)]) -> Result<Vec<bool>> {
+            Ok(vec![true; items.len()])
+        }
+        fn misprints(
+            &self,
+            cases: &[(String, String, Option<String>)],
+            _: &[String],
+        ) -> Result<std::collections::HashMap<String, String>> {
+            Ok(cases.iter().map(|c| (c.0.clone(), c.0.clone())).collect())
+        }
+    }
 
     fn page(name: &str, inner: &str) -> book::Page {
         let x = format!(

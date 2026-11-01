@@ -1,6 +1,5 @@
-//! One book's run, and the commands beside it: read, settle its sounds, speak, assemble (make); the chapters
-//! as text (write_texts), the phonemes of a text file (write_phonemes), a book's words (words), a book's
-//! unsure passages again (recheck). What each prints is here. main.rs's head names the output.
+//! One book's run: read, settle its sounds, speak, assemble (make). What it prints is here. main.rs's head
+//! names the output.
 use crate::book;
 use crate::machine;
 use crate::model::judge::{Judge, ModelJudge};
@@ -58,28 +57,26 @@ fn book_name(src: &Path) -> String {
         .to_string()
 }
 
-/// Each book's chapters, as read, to <dir>/<book>/text.txt and what was changed to changes.txt; the
+/// Each book's chapters, as read, to work/<book>/text.txt and what was changed to changes.txt; the
 /// book's invented words added to series. Prints the chapters' count and words.
 fn read_book(
     src: &Path,
-    dir: Option<&Path>,
     series: &mut HashSet<String>,
     judge: &dyn Judge,
 ) -> Result<(book::Book, Vec<extract::Chapter>)> {
     let name = book_name(src);
-    let work = Path::new("work").join(&name);
+    let out = Path::new("work").join(&name);
     let book = book::read(src)?;
     let mut notes = Vec::new();
     let chs = extract::chapters(&book, Some(judge), series, &mut notes)?;
     judge.close(); // the GPU's memory to the voice; answers stay in the cache
-    // the opening (title and authors) first, so that two routes' metadata compare too
+    // the opening (title and authors) first
     let text: Vec<String> = std::iter::once(extract::opening(&book, &name).title)
         .chain(
             chs.iter()
                 .map(|c| format!("# {}\n\n", c.title) + &c.paragraphs.join("\n\n")),
         )
         .collect();
-    let out = dir.map_or(work, |d| d.join(&name));
     std::fs::create_dir_all(&out)?;
     std::fs::write(out.join("text.txt"), text.join("\n\n"))?;
     std::fs::write(out.join("changes.txt"), notes.join("\n") + "\n")?;
@@ -120,14 +117,6 @@ fn write_series(series: &HashSet<String>) -> Result<()> {
     std::fs::write(SERIES, format!("[{}]", quoted.join(", "))).context(SERIES)
 }
 
-/// The phonemes of each line of the text file `src` to `out`.
-pub fn write_phonemes(tools: &Tools, src: &Path, out: &Path) -> Result<()> {
-    let p = Pronounce::new(tools.espeak()?)?;
-    let text = std::fs::read_to_string(src).with_context(|| src.display().to_string())?;
-    let lines: Vec<String> = text.lines().map(|l| p.phonemes(l)).collect::<Result<_>>()?;
-    std::fs::write(out, lines.join("\n") + "\n").with_context(|| out.display().to_string())
-}
-
 /// The language model, its answers kept in work/llm-cache.json.
 pub fn judge(tools: &Tools) -> Result<ModelJudge> {
     let place = llm::place(&tools.home, &tools.found)?;
@@ -137,16 +126,7 @@ pub fn judge(tools: &Tools) -> Result<ModelJudge> {
     )?)))
 }
 
-/// Each book's chapters to <dir>/<book>/; `no_judge`: no model asked.
-pub fn write_texts(books: &[PathBuf], dir: &Path, no_judge: bool, judge: &ModelJudge) -> Result<()> {
-    let judge: &dyn Judge = if no_judge { &extract::Unchanged } else { judge };
-    for src in books {
-        read_book(src, Some(dir), &mut HashSet::new(), judge)?;
-    }
-    Ok(())
-}
-
-/// What the commands that speak share.
+/// What making a book needs.
 pub struct Run<'a> {
     tools: &'a Tools,
     judge: &'a ModelJudge,
@@ -179,7 +159,7 @@ impl<'a> Run<'a> {
 
     /// The book as read, its opening first.
     fn chapters(&self, src: &Path, series: &mut HashSet<String>) -> Result<(book::Book, Vec<extract::Chapter>)> {
-        let (book, chs) = read_book(src, None, series, self.judge)?;
+        let (book, chs) = read_book(src, series, self.judge)?;
         let mut all = vec![extract::opening(&book, &book_name(src))];
         all.extend(chs);
         Ok((book, all))
@@ -225,44 +205,6 @@ impl<'a> Run<'a> {
         sounds::save(file, &store)?;
         sounds::apply(&words, p, &store)?;
         Ok(sounds::version(&words, &store))
-    }
-
-    /// Prints each book's words eSpeak speaks, English and invented.
-    pub fn words(&self, books: &[PathBuf]) -> Result<()> {
-        let series = read_series()?;
-        for src in books {
-            let (_, all) = self.chapters(src, &mut series.clone())?;
-            let (english, invented) = sounds::found(&self.unsettled(&all), &self.pronounce)?;
-            println!("{}\tenglish\t{}\t{}", book_name(src), english.len(), english.join(" "));
-            println!("{}\tinvented\t{}\t{}", book_name(src), invented.len(), invented.join(" "));
-        }
-        Ok(())
-    }
-
-    /// The passages `listed` (a book's unsure.txt) spoken and heard again, and reported.
-    pub fn recheck(&self, src: &Path, listed: &Path) -> Result<()> {
-        let (_, all) = self.chapters(src, &mut read_series()?)?;
-        let names = chunks::book_words(&all, 60);
-        self.settle(&self.unsettled(&all), &names)?;
-        let listed = std::fs::read_to_string(listed).with_context(|| listed.display().to_string())?;
-        let (mut kokoro, mut ear) = (self.kokoro()?, self.ear()?);
-        let text = RefCell::new(String::new()); // the chunk being spoken, for its hint
-        let got = speak::recheck(
-            &listed,
-            &mut |t| {
-                *text.borrow_mut() = t.to_string();
-                kokoro.say(&self.pronounce.phonemes(t)?)
-            },
-            &mut |wav| ear.hear(wav, &chunks::hint(&names, &text.borrow(), HINT_CHARS)),
-            &self.pronounce,
-        )?;
-        for (i, old, err, heard, text) in &got {
-            let heard = heard.split_whitespace().collect::<Vec<_>>().join(" "); // Whisper's newlines
-            println!("{i}\t{old:.2}\t{err:.2}\t{heard}\t{text}");
-        }
-        let still = got.iter().filter(|g| g.2 > speak::MAX_ERROR).count();
-        println!("unsure: {still} of {}", got.len());
-        Ok(())
     }
 
     /// One book, read to audiobook at `out`.

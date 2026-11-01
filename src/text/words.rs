@@ -156,7 +156,7 @@ mod tests {
         }
     }
 
-    /// tools/known_flip.py: known() of each word of EBOOK2M4B_WORDS (one a line) into EBOOK2M4B_KNOWN ("word TAB 0|1").
+    /// A measure, run by hand: known() of each word of EBOOK2M4B_WORDS (one a line) into EBOOK2M4B_KNOWN ("word TAB 0|1").
     #[test]
     #[ignore]
     fn known_of_a_word_list() {

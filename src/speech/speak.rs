@@ -23,7 +23,7 @@ const TRIES: usize = 3;
 /// a chunk heard with more of its sounds wrong is spoken again
 pub const MAX_ERROR: f32 = 0.1;
 /// The chunk spoken until heard right, else the best of TRIES; with its error and what was heard.
-pub fn checked(
+fn checked(
     text: &str,
     say: &mut dyn FnMut() -> Result<Vec<f32>>,
     hear: &mut dyn FnMut(&[f32]) -> Result<String>,
@@ -42,28 +42,6 @@ pub fn checked(
         }
     }
     Ok(best.expect("TRIES is above 0"))
-}
-
-/// The passages of an unsure.txt (`listed`, its lines) checked again, each spoken from its text by `say`:
-/// (chunk, the error listed, the error now, what was heard, the text). tools/unsure_recheck.py's measure.
-pub type Rechecked = (usize, f32, f32, String, String);
-
-pub fn recheck(
-    listed: &str,
-    say: &mut dyn FnMut(&str) -> Result<Vec<f32>>,
-    hear: &mut dyn FnMut(&[f32]) -> Result<String>,
-    p: &Pronounce,
-) -> Result<Vec<Rechecked>> {
-    let mut out = Vec::new();
-    for line in listed.lines().filter(|l| !l.trim().is_empty()) {
-        let mut parts = line.splitn(3, '\t');
-        let (i, old, text) = (|| Some((parts.next()?, parts.next()?, parts.next()?)))()
-            .with_context(|| format!("no unsure line: {line:?}"))?;
-        let (i, old): (usize, f32) = (i.parse()?, old.parse()?);
-        let (_, err, heard) = checked(text, &mut || say(text), hear, p)?;
-        out.push((i, old, err, heard, text.to_string()));
-    }
-    Ok(out)
 }
 
 /// unsure.txt's line for chunk `i` heard with `err` of its sounds wrong.
@@ -227,26 +205,6 @@ mod tests {
             err > MAX_ERROR && wav == vec![1.0] && n.get() == 3,
             "{err} {wav:?}"
         );
-    }
-
-    #[test]
-    fn listed_passages_are_rechecked_and_reported() {
-        let listed = "3\t0.21\tThe cat sat.\n9\t0.50\tdog\n";
-        let mut heard = ["the cat sat", "dog", "dog", "dog"].into_iter();
-        let report = recheck(
-            listed,
-            &mut |_| Ok(vec![0.0]),
-            &mut |_| Ok(heard.next().unwrap().into()),
-            &P,
-        )
-        .unwrap();
-        let want = [(3, 0.21, 0.0, "the cat sat", "The cat sat."), (9, 0.5, 0.0, "dog", "dog")];
-        let want: Vec<_> = want
-            .into_iter()
-            .map(|(i, o, e, h, t)| (i, o, e, h.to_string(), t.to_string()))
-            .collect();
-        assert_eq!(report, want);
-        assert!(recheck("no tabs", &mut |_| Ok(vec![]), &mut |_| Ok(String::new()), &P).is_err());
     }
 
     #[test]
