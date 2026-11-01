@@ -1,4 +1,4 @@
-//! HTML tag soup (a mobi's markup) made XHTML that epub.rs reads, page by page.
+//! HTML tag soup (a mobi's markup) made XHTML that book/mod.rs parses, page by page.
 //!
 //! tokens() cuts the bytes into text, start and end tags, each with its byte offset (a mobi's links
 //! point at byte offsets); attributes may be unquoted, names are lower-cased, `mbp:name` loses its
@@ -8,7 +8,7 @@
 //! elements are closed, entities decoded, characters XML cannot hold left out. The head is left
 //! out (it ends at its end or the first element not of a head), and title/style/script anywhere.
 //! cut() ends the page there: the open elements are closed and opened again on the next page.
-//! The page sits in a <div>: epub.rs drops text standing directly in the body before its first
+//! The page sits in a <div>: book/mod.rs drops text standing directly in the body before its first
 //! element. It ends with a newline, as in Calibre's pages.
 use regex::Regex;
 use std::sync::LazyLock;

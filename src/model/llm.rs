@@ -1,6 +1,6 @@
 //! A language model asked for answers in a fixed JSON shape, local or remote.
 //!
-//! Both speak the OpenAI chat API. Local (the default): llama.cpp's server and Gemma 4 E4B from setup.rs,
+//! Both speak the OpenAI chat API. Local (the default): llama.cpp's server and Gemma 4 E4B from setup/,
 //! on the NVIDIA GPU (Vulkan on Windows, CUDA on Linux; another card: its first Vulkan device), started at the first question and stopped
 //! by close(). Remote: a file llm.json in the home folder (setup::home) holding
 //! {"url": "https://.../v1", "model": "<name>", "key_env": "<VARIABLE>"}, the key read from that

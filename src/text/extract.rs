@@ -1,6 +1,6 @@
 //! From an ebook to clean chapters of text: what is read aloud and nothing else.
 //!
-//! A book comes as epub.rs's Book (an EPUB read, a mobi by mobi.rs). Chapters are cut where the book's table of
+//! A book comes as a Book (book/mod.rs, from any of its readers). Chapters are cut where the book's table of
 //! contents points (a file, or an anchor in one), else its own contents page, else lines like "Chapter
 //! One", else each page; contents, copyright and similar pieces and short front matter are left out;
 //! a scene break (<hr>, "* * *") becomes SCENE. Paragraphs cut by a page are joined, words in capitals

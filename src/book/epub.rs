@@ -1,13 +1,8 @@
-//! An EPUB as extract.rs needs it.
-//!
-//! Book: the spine's items (documents parsed into a small tree), the table of contents flattened
+//! An EPUB read as a Book (book/mod.rs): the spine's items, the table of contents flattened
 //! (the NCX the spine names, the EPUB 3 nav when that gives none), the DC creators and titles.
-//! XML is read with DOCTYPEs allowed; a page's HTML entities are decoded and an undeclared `epub:` declared first.
 //! Traps:
 //! - manifest hrefs are percent-decoded, hrefs in the contents and in links are not;
-//! - only the body's children are kept (text before the first is lost);
-//! - a string of ASCII spaces only becomes "\n" if it holds one, else " ", not in <pre>;
-//! - comments hold no text; a "cover"-properties page has none either.
+//! - a "cover"-properties page has no text.
 use crate::book::{Book, Page, as_xml, base_name, body, xml};
 use anyhow::{Context, Result};
 use std::path::Path;
