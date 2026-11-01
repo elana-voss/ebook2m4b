@@ -4,6 +4,7 @@
 //! "I'mtired" and "S-four-otwelve" are too mangled to guess. Words are counted in order of first use,
 //! since ties and the judge's list follow that order.
 use crate::model::judge::Judge;
+use crate::text::edit::distance;
 use crate::text::extract::Chapter;
 use crate::text::words::{compound, known};
 use std::collections::{HashMap, HashSet};
@@ -68,34 +69,6 @@ fn words(p: &str) -> Vec<(usize, usize)> {
         prev = p[..end].chars().next_back();
     }
     out
-}
-
-/// Levenshtein distance in characters (speak.rs's heard_error too).
-pub fn distance(a: &str, b: &str) -> usize {
-    *distances(a, b).last().expect("a row has b's length + 1")
-}
-
-/// The least distance of `a` to a prefix of `b`: what `b` has beyond `a`'s end costs nothing.
-pub fn distance_to_prefix(a: &str, b: &str) -> usize {
-    distances(a, b).into_iter().min().expect("a row has b's length + 1")
-}
-
-/// Levenshtein's last row: the distance of `a` to each prefix of `b`.
-fn distances(a: &str, b: &str) -> Vec<usize> {
-    let b: Vec<char> = b.chars().collect();
-    let mut row: Vec<usize> = (0..=b.len()).collect();
-    for (i, ca) in a.chars().enumerate() {
-        let mut prev = row[0];
-        row[0] = i + 1;
-        for j in 1..=b.len() {
-            let here = (row[j] + 1)
-                .min(row[j - 1] + 1)
-                .min(prev + usize::from(ca != b[j - 1]));
-            prev = row[j];
-            row[j] = here;
-        }
-    }
-    row
 }
 
 /// The words one letter off w: one dropped, swapped, changed or added.

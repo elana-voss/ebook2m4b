@@ -55,7 +55,7 @@ pub fn heard_error(p: &Pronounce, expected: &str, heard: &str) -> Result<f32> {
         .join(" ");
     let heard = names_as_heard(p, expected, &heard)?;
     let (a, b) = (sounds(expected)?, sounds(&heard)?);
-    let wrong = crate::text::misprints::distance_to_prefix(&a, &b);
+    let wrong = crate::text::edit::distance_to_prefix(&a, &b);
     Ok(wrong as f32 / a.chars().count().max(SHORT_LINE) as f32)
 }
 
@@ -92,8 +92,8 @@ fn names_as_heard(p: &Pronounce, expected: &str, heard: &str) -> Result<String> 
                     break;
                 }
                 let got: String = said[k..k + len].concat();
-                let d = crate::text::misprints::distance(&want, &got);
-                let by_letters = len == 1 && crate::text::misprints::distance(&spelt, &heard[k]) * 3 <= spelt.len();
+                let d = crate::text::edit::distance(&want, &got);
+                let by_letters = len == 1 && crate::text::edit::distance(&spelt, &heard[k]) * 3 <= spelt.len();
                 if (by_letters || d * 2 <= want.chars().count())
                     && near.is_none_or(|n| (!by_letters, d, len, k) < n)
                 {

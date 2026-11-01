@@ -82,7 +82,7 @@ pub fn distance(word: &str, heard: &str) -> f64 {
         let mut joined = String::new();
         for h in &hs[i..(i + 3).min(hs.len())] {
             joined += h;
-            best = best.min(crate::text::misprints::distance(&w, &joined));
+            best = best.min(crate::text::edit::distance(&w, &joined));
         }
     }
     best as f64 / n as f64
