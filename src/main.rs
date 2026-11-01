@@ -100,7 +100,7 @@ fn read_book(
     src: &Path,
     dir: Option<&Path>,
     series: &mut HashSet<String>,
-    judge: &dyn extract::Judge,
+    judge: &dyn judge::Judge,
 ) -> Result<(book::Book, Vec<extract::Chapter>)> {
     let name = book_name(src);
     let work = Path::new("work").join(&name);
@@ -213,7 +213,7 @@ fn settle_book(
     };
     let mut respell = |items: &[(String, String)]| {
         let got = judge.respell(items);
-        extract::Judge::close(judge);
+        judge::Judge::close(judge);
         got
     };
     let words = sounds::settle(cs, names, HINT_CHARS, p, &mut store, &mut trip, &mut respell)?;
@@ -258,7 +258,7 @@ fn main() -> Result<()> {
         "work/llm-cache.json".into(),
     )?));
     if let Some(dir) = &args.text {
-        let judge: &dyn extract::Judge = if args.no_judge {
+        let judge: &dyn judge::Judge = if args.no_judge {
             &extract::Unchanged
         } else {
             &judge

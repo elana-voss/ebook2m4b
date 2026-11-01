@@ -4,12 +4,28 @@
 //! choice, and extract.rs and misprints.rs check each answer before using it.
 //! Trap: the prompts, the items' JSON and the schemas make the cache's keys (llm.rs's head); a change
 //! here asks every question again.
-use crate::text::extract::Judge;
 use crate::model::llm::Llm;
 use anyhow::Result;
 use serde_json::{Value, json};
 use std::cell::RefCell;
 use std::collections::HashMap;
+
+/// What a language model is asked where the rules cannot tell with confidence (ModelJudge below; extract.rs and misprints.rs ask it).
+pub trait Judge {
+    /// For each (line, what follows it): is the line a chapter heading?
+    fn headings(&self, items: &[(String, String)]) -> Result<Vec<bool>>;
+    /// For each (title, its start): is the piece read aloud (not front or back matter)?
+    fn read(&self, items: &[(String, String)]) -> Result<Vec<bool>>;
+    /// For each (word, the text around it, the rules' guess), given the book's own words: the word
+    /// as it should read (one or two words; the word itself where it stands).
+    fn misprints(
+        &self,
+        cases: &[(String, String, Option<String>)],
+        keep: &[String],
+    ) -> Result<std::collections::HashMap<String, String>>;
+    /// Frees what it holds (the GPU's memory); its answers stay in the cache.
+    fn close(&self) {}
+}
 
 const BATCH: usize = 20;
 

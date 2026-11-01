@@ -6,6 +6,7 @@
 //! a scene break (<hr>, "* * *") becomes SCENE. Paragraphs cut by a page are joined, words in capitals
 //! read as words. What the rules cannot settle a Judge is asked (judge.rs: a language model).
 //! Each block's text goes through clean.rs, the chapters through misprints.rs.
+use crate::model::judge::Judge;
 use crate::text::clean::clean;
 use crate::book::{self, Book, Elem, Node, re};
 use anyhow::Result;
@@ -66,23 +67,6 @@ static CAPS_WORD: LazyLock<Regex> = LazyLock::new(|| re(r"\b[A-Z][A-Z'’]+\b"))
 pub struct Chapter {
     pub title: String,
     pub paragraphs: Vec<String>,
-}
-
-/// What a language model is asked where the rules cannot tell with confidence (judge.rs).
-pub trait Judge {
-    /// For each (line, what follows it): is the line a chapter heading?
-    fn headings(&self, items: &[(String, String)]) -> Result<Vec<bool>>;
-    /// For each (title, its start): is the piece read aloud (not front or back matter)?
-    fn read(&self, items: &[(String, String)]) -> Result<Vec<bool>>;
-    /// For each (word, the text around it, the rules' guess), given the book's own words: the word
-    /// as it should read (one or two words; the word itself where it stands).
-    fn misprints(
-        &self,
-        cases: &[(String, String, Option<String>)],
-        keep: &[String],
-    ) -> Result<std::collections::HashMap<String, String>>;
-    /// Frees what it holds (the GPU's memory); its answers stay in the cache.
-    fn close(&self) {}
 }
 
 /// A judge that changes nothing (the tests' stand-in; --no-judge for comparing readers).

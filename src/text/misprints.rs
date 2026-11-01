@@ -3,7 +3,8 @@
 //! A word is a run of a-z with no letter, digit, apostrophe or hyphen on either side:
 //! "I'mtired" and "S-four-otwelve" are too mangled to guess. Words are counted in order of first use,
 //! since ties and the judge's list follow that order.
-use crate::text::extract::{Chapter, Judge};
+use crate::model::judge::Judge;
+use crate::text::extract::Chapter;
 use crate::text::words::{compound, known};
 use std::collections::{HashMap, HashSet};
 
