@@ -25,8 +25,11 @@ const GERMAN: [&str; 15] = [
     "und", "der", "die", "das", "nicht", "ist", "ich", "sie", "er", "es", "ein", "zu", "den", "mit", "von",
 ];
 
-/// The share of a book's words its language's list must reach, in percent.
-const SHARE: usize = 8;
+/// The share of a book's words each list must reach, in percent. A language's own text reaches 20 and more,
+/// a reference book less (this project's README 12.5); no English book is to be refused, while the German list
+/// has more words other languages write (Danish er, den, der), so its bar is higher.
+const ENGLISH_SHARE: usize = 5;
+const GERMAN_SHARE: usize = 8;
 
 /// The language of these pieces of text; None when they are in neither.
 pub fn detect<'a>(pieces: impl Iterator<Item = &'a str>) -> Option<Language> {
@@ -37,12 +40,12 @@ pub fn detect<'a>(pieces: impl Iterator<Item = &'a str>) -> Option<Language> {
         english += usize::from(ENGLISH.contains(&word.as_str()));
         german += usize::from(GERMAN.contains(&word.as_str()));
     }
-    let (language, count) = if german > english {
-        (Language::German, german)
+    let (language, count, share) = if german > english {
+        (Language::German, german, GERMAN_SHARE)
     } else {
-        (Language::English, english)
+        (Language::English, english, ENGLISH_SHARE)
     };
-    (count > 0 && count * 100 >= words * SHARE).then_some(language)
+    (count > 0 && count * 100 >= words * share).then_some(language)
 }
 
 #[cfg(test)]
@@ -63,6 +66,17 @@ mod tests {
     fn a_book_that_mixes_the_two_goes_by_the_one_with_more_text() {
         assert_eq!(detect([DE, EN, DE].into_iter()), Some(Language::German));
         assert_eq!(detect([EN, DE, EN].into_iter()), Some(Language::English));
+    }
+
+    /// `hits` words of the two lists' first word among 100 words.
+    fn text(word: &str, hits: usize) -> String {
+        vec![word; hits].into_iter().chain(vec!["flour"; 100 - hits]).collect::<Vec<_>>().join(" ")
+    }
+
+    #[test]
+    fn a_thin_english_book_is_still_english_but_a_thin_german_share_is_not_german() {
+        assert_eq!(detect([text("the", 6).as_str()].into_iter()), Some(Language::English));
+        assert_eq!(detect([text("und", 6).as_str()].into_iter()), None);
     }
 
     #[test]
