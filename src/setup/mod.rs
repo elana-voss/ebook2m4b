@@ -4,6 +4,7 @@
 //! Each download is checked by its pinned SHA-256 before it is unpacked.
 //! Kokoro's model is then patched for the GPU once per patch version (onnx.rs), as "kokoro-gpu" ("kokoro-gpu-dml" on DirectML).
 //! Each card's ONNX Runtime has its own folder (ort, ort-dml), so a card changed later fetches its own.
+//! Kerstin, the German voice, and her model are fetched the first time a German book is read (Tools::kerstin).
 //! Libraries nothing loads (TensorRT's provider, cuFFTW, NVBLAS) are not unpacked.
 //! Linux: links in the archives are made again, every file taken may be run, and the libraries' folders
 //! are put on LD_LIBRARY_PATH for the programs started later (llama-server, whisper-server).
@@ -97,18 +98,21 @@ impl Tools {
     }
 
     /// Kokoro's files for a German book, fetched the first time one is read: Kerstin's model, as it comes
-    /// (it has no STFT for the GPU patch to change, and runs without it). NVIDIA only: DirectML refuses the
-    /// model's ConvTranspose, so another card is told so before anything is fetched.
+    /// (it has no STFT for the GPU patch to change, and runs without it); on another card with the pads
+    /// DirectML takes, made once beside it.
     pub fn kerstin(&self) -> Result<KokoroFiles<'_>> {
-        kerstin_runs_on(self.card)?;
         if self.german.get().is_none() {
             let mut found = self.found.clone();
-            fetch(german(), &mut found, &self.home, &self.home.join(STATE))?;
+            let state = self.home.join(STATE);
+            fetch(german(), &mut found, &self.home, &state)?;
+            if self.card == Card::Other {
+                make_kerstin_dml(&mut found, &self.home, &state)?;
+            }
             // set just above if empty; a run is one thread, nothing else sets it
             let _ = self.german.set(found);
         }
         let german = self.german.get().context("the German voice is not set up")?;
-        kerstin_files(german, self.piece("onnxruntime")?)
+        kerstin_files(german, self.piece("onnxruntime")?, self.card)
     }
 
     /// The route this card takes, as said to the reader.
@@ -117,14 +121,21 @@ impl Tools {
     }
 }
 
-fn kerstin_runs_on(card: Card) -> Result<()> {
-    if card != Card::Nvidia {
-        bail!("German books need an NVIDIA card: the German voice does not run on this one");
+/// Kerstin's model with the pads DirectML takes, made once beside it.
+fn make_kerstin_dml(found: &mut BTreeMap<String, PathBuf>, home: &Path, state: &Path) -> Result<()> {
+    let dst = home.join(KERSTIN_DML);
+    if found.get("kerstin-model-dml").is_some_and(|p| *p == dst && p.exists()) {
+        return Ok(());
     }
+    let src = found.get("kerstin-model").context("kerstin-model is not set up")?;
+    println!("Kerstin's model is made ready for this card");
+    crate::speech::onnx::pads_only(src, &dst)?;
+    found.insert("kerstin-model-dml".into(), dst);
+    fs::write(state, serde_json::to_string_pretty(&found)?)?;
     Ok(())
 }
 
-fn kerstin_files<'a>(german: &'a BTreeMap<String, PathBuf>, ort: &'a Path) -> Result<KokoroFiles<'a>> {
+fn kerstin_files<'a>(german: &'a BTreeMap<String, PathBuf>, ort: &'a Path, card: Card) -> Result<KokoroFiles<'a>> {
     let piece = |key: &str| {
         german
             .get(key)
@@ -133,16 +144,19 @@ fn kerstin_files<'a>(german: &'a BTreeMap<String, PathBuf>, ort: &'a Path) -> Re
     };
     Ok(KokoroFiles {
         ort,
-        model: piece("kerstin-model")?,
+        model: piece(if card == Card::Nvidia { "kerstin-model" } else { "kerstin-model-dml" })?,
         tokenizer: piece("kokoro-tokenizer")?,
         voice: piece("voice-df_kerstin")?,
-        cuda: true,
+        cuda: card == Card::Nvidia,
     })
 }
 
 pub fn home() -> Result<PathBuf> {
     crate::machine::home(crate::machine::THIS, |k| std::env::var(k).ok())
 }
+
+/// Kerstin's model for DirectML, under home.
+const KERSTIN_DML: &str = "models/kerstin/model-dml.onnx";
 
 /// What setup.json holds, under home.
 const STATE: &str = "setup.json";
@@ -516,9 +530,9 @@ mod tests {
             .into_iter()
             .collect();
         let ort = Path::new("/ort");
-        assert!(kerstin_files(&found, ort).is_err()); // no voice yet
+        assert!(kerstin_files(&found, ort, Card::Nvidia).is_err()); // no voice yet
         found.insert("voice-df_kerstin".into(), "/voice".into());
-        let k = kerstin_files(&found, ort).unwrap();
+        let k = kerstin_files(&found, ort, Card::Nvidia).unwrap();
         assert_eq!(k.model, Path::new("/kerstin-model"));
         assert_eq!(k.tokenizer, Path::new("/kokoro-tokenizer"));
         assert_eq!(k.voice, Path::new("/voice"));
@@ -526,10 +540,14 @@ mod tests {
     }
 
     #[test]
-    fn german_is_refused_on_a_card_other_than_nvidias() {
-        assert!(kerstin_runs_on(Card::Nvidia).is_ok());
-        let e = kerstin_runs_on(Card::Other).unwrap_err();
-        assert!(e.to_string().contains("NVIDIA"), "{e}");
+    fn kerstin_on_another_card_has_the_model_with_directmls_pads() {
+        let found: BTreeMap<String, PathBuf> = ["kerstin-model", "kerstin-model-dml", "kokoro-tokenizer", "voice-df_kerstin"]
+            .map(|k| (k.to_string(), PathBuf::from(format!("/{k}"))))
+            .into_iter()
+            .collect();
+        let k = kerstin_files(&found, Path::new("/ort"), Card::Other).unwrap();
+        assert_eq!(k.model, Path::new("/kerstin-model-dml"));
+        assert!(!k.cuda);
     }
 
     #[test]

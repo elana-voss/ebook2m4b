@@ -8,6 +8,7 @@
 //! - the inverse STFT's NonZero/ScatterND division by the window sum becomes a Where over the same mask;
 //! - on another card (DirectML) also: the three upsampling
 //!   ConvTranspose nodes get pads 1/0 and no output_padding (same output, which DirectML otherwise refuses).
+//! Kerstin's model has no STFT: it runs as it comes on CUDA, and with only the pads' change on DirectML (pads_only).
 //!
 //! Nodes and initializers no graph output needs any more are dropped.
 //! The protobuf is read and written by a small reader here (no ONNX library): a message is its fields in order,
@@ -486,6 +487,26 @@ impl Graph {
 
 /// Writes `src` patched for the GPU to `dst` (through a .part file); `directml` adds the pads' change.
 pub fn patch(src: &Path, dst: &Path, directml: bool) -> Result<()> {
+    rewrite(src, dst, |graph| {
+        graph.gpufix()?;
+        if directml && graph.padfix()? != 3 {
+            bail!("the model's upsampling is not the one expected");
+        }
+        Ok(())
+    })
+}
+
+/// Writes Kerstin's model to `dst` with only the pads' change, for DirectML: it has no STFT to patch.
+pub fn pads_only(src: &Path, dst: &Path) -> Result<()> {
+    rewrite(src, dst, |graph| {
+        if graph.padfix()? == 0 {
+            bail!("the model's upsampling is not the one expected");
+        }
+        Ok(())
+    })
+}
+
+fn rewrite(src: &Path, dst: &Path, change: impl FnOnce(&mut Graph) -> Result<()>) -> Result<()> {
     let bytes = std::fs::read(src).with_context(|| src.display().to_string())?;
     let mut model = parse(&bytes)?;
     drop(bytes);
@@ -497,10 +518,7 @@ pub fn patch(src: &Path, dst: &Path, directml: bool) -> Result<()> {
         bail!("the model's graph is no message")
     };
     let mut graph = Graph::read(g)?;
-    graph.gpufix()?;
-    if directml && graph.padfix()? != 3 {
-        bail!("the model's upsampling is not the one expected");
-    }
+    change(&mut graph)?;
     graph.prune()?;
     model[at].1 = V::Bytes(graph.write());
     let part = dst.with_extension("part");
@@ -666,5 +684,29 @@ mod tests {
             })
             .collect();
         assert_eq!(pads, [vec![1, 0]]);
+    }
+
+    #[test]
+    fn pads_only_changes_the_pads_and_leaves_the_rest_of_the_graph() {
+        let dir = std::env::temp_dir().join(format!("ebook2m4b-pads-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (src, dst) = (dir.join("in.onnx"), dir.join("out.onnx"));
+        std::fs::write(&src, encode(&vec![(7, V::Bytes(tiny().write()))])).unwrap();
+        pads_only(&src, &dst).unwrap();
+        let model = parse(&std::fs::read(&dst).unwrap()).unwrap();
+        let V::Bytes(g) = &model[0].1 else { panic!() };
+        let g = Graph::read(g).unwrap();
+        let ops: Vec<String> = g.nodes.iter().map(|n| str1(n, 4)).collect();
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert!(ops.contains(&"STFT".into()) && !ops.contains(&"Conv".into()), "{ops:?}");
+        let up = g.nodes.iter().find(|n| str1(n, 4) == "ConvTranspose").unwrap();
+        let attrs: Vec<(String, Vec<i64>)> = up
+            .iter()
+            .filter_map(|(k, v)| match v {
+                V::Bytes(b) if *k == 5 => parse(b).ok().map(|a| (str1(&a, 1), attr_ints(&a).unwrap())),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(attrs, [("pads".to_string(), vec![1, 0])]);
     }
 }

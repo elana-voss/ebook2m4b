@@ -16,11 +16,11 @@ pub enum Ear {
     /// held only to stop the server when the Ear is dropped
     Server(#[allow(dead_code)] crate::setup::process::Served),
     #[cfg(windows)]
-    Built(crate::speech::ear::WhisperState),
+    Built(crate::speech::ear::WhisperState, &'static str),
 }
 
 impl Ear {
-    /// Whisper on `card`, from setup's pieces, hearing `language` ("en", "de"); another card than NVIDIA's reads only English books.
+    /// Whisper on `card`, from setup's pieces, hearing `language` ("en", "de").
     pub fn new(card: Card, found: &BTreeMap<String, PathBuf>, language: &'static str) -> Result<Ear> {
         let model = found
             .get("whisper-model")
@@ -34,7 +34,7 @@ impl Ear {
                 start(&dir.join(exe), model, language).map(Ear::Server)
             }
             #[cfg(windows)]
-            Card::Other => crate::speech::ear::built(model).map(Ear::Built),
+            Card::Other => crate::speech::ear::built(model).map(|s| Ear::Built(s, language)),
             #[cfg(not(windows))]
             Card::Other => anyhow::bail!("on Linux Whisper runs on an NVIDIA card only"),
         }
@@ -67,7 +67,9 @@ impl Ear {
                     .to_string())
             }
             #[cfg(windows)]
-            Ear::Built(state) => crate::speech::ear::hear(state, wav, crate::speech::wav::RATE, hint),
+            Ear::Built(state, language) => {
+                crate::speech::ear::hear(state, wav, crate::speech::wav::RATE, hint, language)
+            }
         }
     }
 }

@@ -1,7 +1,8 @@
 //! Ebooks (mobi, azw3, epub, fb2, docx, txt, html) to audiobooks: `ebook2m4b <book or folder> [options]`
 //!
 //! Kokoro reads with one of its voices (--voice af_bella, the default; English voices start with a_
-//! or b_). One output per book, out/<book>.m4b; a finished book is skipped unless --overwrite;
+//! or b_); a German book is read by Kerstin whatever --voice says, the language told from the book's text
+//! (text/language.rs). One output per book, out/<book>.m4b; a finished book is skipped unless --overwrite;
 //! --demo speaks about a minute at the start, middle and end; --speed 0.9 is a little slower.
 //! The first start fetches what the card needs (setup/); the models run on the graphics card only.
 //! The work is run.rs's; here are the options and which of its commands they ask for.
@@ -12,7 +13,7 @@
 //! Each format has its reader in book/.
 //! Each book's chunks are spoken into work/<book>/<voice>/ (speak.rs) and heard back by Whisper
 //! (whisper.rs), the doubtful ones in its unsure.txt; then joined into the audiobook (assemble.rs).
-//! A book that fails is reported and the others go on; the run ends with "Not done: ...".
+//! A book that fails, or is in neither language, is reported and the others go on; the run ends with "Not done: ...".
 //! --card other takes the route of a non-NVIDIA card (DirectML, Vulkan) on any Windows machine (its test); Linux refuses it.
 //! Before speaking, the book's invented words are settled (sounds::settle, work/sounds.json).
 mod book;
