@@ -3,14 +3,14 @@
 //! A word is a run of a-z (German: with äöüß, and a capital may start it) with no letter, digit, apostrophe or hyphen on either side:
 //! "I'mtired" and "S-four-otwelve" are too mangled to guess. Words are counted in order of first use,
 //! since ties and the judge's list follow that order.
-//! German parts a run-together word only after a little word (LITTLE_DE): its compounds and verbs ("Bergweg",
+//! German parts a run-together word only after a little word (GERMAN_LITTLE): its compounds and verbs ("Bergweg",
 //! "beitreten") look run together, and spoken they gain nothing. A German answer that only changes a word's
 //! ending is refused: the list lacks a form of a word, it is no misprint.
 use crate::model::judge::Judge;
 use crate::text::edit::distance;
 use crate::text::extract::Chapter;
 use crate::text::language::Language;
-use crate::text::words::{compound, known_in};
+use crate::text::words::{GERMAN_LITTLE, compound, known_in};
 use std::collections::{HashMap, HashSet};
 
 /// The words of a text and their counts, in order of first use.
@@ -76,12 +76,6 @@ fn words(p: &str, language: Language) -> Vec<(usize, usize)> {
     }
     out
 }
-
-/// The words another may have run into in German: no preposition, which is also a verb's prefix.
-const LITTLE_DE: [&str; 25] = [
-    "der", "die", "das", "dem", "den", "des", "eine", "einen", "einem", "einer", "eines", "und", "oder", "aber",
-    "auch", "nicht", "sich", "sie", "er", "es", "ich", "du", "wir", "ihr", "als",
-];
 
 /// Whether a German word and its mended form differ only by an ending.
 fn only_ending(w: &str, mended: &str, language: Language) -> bool {
@@ -216,7 +210,7 @@ pub fn mend(
             parts.clear();
         }
         if !english {
-            parts.retain(|(a, _)| LITTLE_DE.contains(a));
+            parts.retain(|(a, _)| GERMAN_LITTLE.contains(&a.to_lowercase().as_str()));
         }
         if !parts.is_empty() {
             // "does not", not "doe snot": the first pair whose rarer part is the most used
@@ -343,7 +337,7 @@ fn ask_judge(
             && parts.iter().all(|p| {
                 words(p, language) == [(0, p.len())] && (known(p) || count.has(p))
             });
-        if fits && distance(w, &parts.concat()) <= 2 {
+        if fits && distance(&w.to_lowercase(), &parts.concat().to_lowercase()) <= 2 {
             fix.push((w.clone(), parts.join(" "), "the language model"));
         }
     }
@@ -453,6 +447,18 @@ mod tests {
         for w in ["Kelmarweg", "Kelmares", "beikelmar"] {
             assert_eq!(parts(w), Vec::<String>::new(), "{w}");
         }
+        let text = format!("Derkelmar. {}kelmar kelmar.", "Der Weg. ".repeat(20));
+        let mut notes = Vec::new();
+        mend(ch(&[&text]), None, &HashSet::new(), &mut notes, Language::German).unwrap();
+        assert_eq!(notes, ["Derkelmar -> Der kelmar (run together)"]);
+    }
+
+    #[test]
+    fn a_german_answers_capital_is_no_letter_off() {
+        let judge = Answers(HashMap::from([("hauuss".to_string(), "Haus".to_string())]));
+        let mut notes = Vec::new();
+        mend(ch(&["Das hauuss stand da."]), Some(&judge), &HashSet::new(), &mut notes, Language::German).unwrap();
+        assert_eq!(notes, ["hauuss -> Haus (the language model)"]);
     }
 
     #[test]

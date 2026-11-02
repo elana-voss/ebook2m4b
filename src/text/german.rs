@@ -1,7 +1,7 @@
 //! German text made fit to be read aloud: abbreviations, signs and numbers in German words.
 //!
 //! Numbers: "1.250" and "3,14" as German writes them; a year 1100-1999 as "neunzehnhundert..", a time
-//! before "Uhr", "20er", a date "12.3.1945", "1" before a capital as "ein". "3." becomes an ordinal only
+//! before "Uhr", "20er", a date "12.3.1945", "1" before a capital as "ein" (after a numbering noun "eins": "Teil 1 Die Wüste"). "3." becomes an ordinal only
 //! before a lower-case word, a month or a counted noun, or after an article (whose word gives the ending);
 //! else the dot ends a sentence ("Es waren 30. Dann"). Traps: the endings are guessed from the word before
 //! or the noun after, not from grammar ("der 2. Frau" reads "zweite"); a Roman numeral after a name
@@ -32,7 +32,7 @@ const ABBREVIATIONS: &[(&str, &str, When)] = &[
     ("o. ä.", "oder ähnliches", When::Ends),
     ("u. U.", "unter Umständen", When::Always),
     ("i. d. R.", "in der Regel", When::Always),
-    ("a. D.", "außer Dienst", When::Ends),
+    ("a. D.", "außer Dienst", When::Always),
     ("v. Chr.", "vor Christus", When::Ends),
     ("n. Chr.", "nach Christus", When::Ends),
     ("u. s. w.", "und so weiter", When::Ends),
@@ -58,13 +58,26 @@ const ABBREVIATIONS: &[(&str, &str, When)] = &[
     ("Kap.", "Kapitel", When::Digit),
     ("Jh.", "Jahrhundert", When::Ends),
     ("Jhd.", "Jahrhundert", When::Ends),
-    ("Mio.", "Millionen", When::Ends),
-    ("Mrd.", "Milliarden", When::Ends),
-    ("Tsd.", "tausend", When::Ends),
-    ("Std.", "Stunden", When::Ends),
-    ("Min.", "Minuten", When::Ends),
-    ("Sek.", "Sekunden", When::Ends),
+    // a noun follows these with its capital ("5 Mio. Euro"): no sentence's end
+    ("Mio.", "Millionen", When::Always),
+    ("Mrd.", "Milliarden", When::Always),
+    ("Tsd.", "tausend", When::Always),
+    ("Std.", "Stunden", When::Always),
+    ("Min.", "Minuten", When::Always),
+    ("Sek.", "Sekunden", When::Always),
 ];
+
+/// What "1" before these reads: "1 Mio. Euro" is "eine Million Euro".
+const ONE_OF: &[(&str, &str)] = &[
+    ("Mio.", "eine Million"),
+    ("Mrd.", "eine Milliarde"),
+    ("Tsd.", "eintausend"),
+    ("Std.", "eine Stunde"),
+    ("Min.", "eine Minute"),
+    ("Sek.", "eine Sekunde"),
+];
+/// A noun whose number names it ("Teil 1 Die Wüste"): "eins", not the article "ein".
+const NUMBERING: [&str; 6] = ["kapitel", "teil", "band", "buch", "nummer", "seite"];
 
 /// The table's forms with any space between their pieces; the longest first.
 static ABBREVIATION: LazyLock<Regex> = LazyLock::new(|| {
@@ -157,9 +170,34 @@ const ARTICLES: &[(&str, &str)] = &[
 pub fn read_out(text: &str) -> String {
     let text = abbreviations(text);
     let text = signs(&text);
-    let text = text.replace('&', "und").replace('€', "Euro").replace('§', "Paragraph");
+    let text = spaced(&spaced(&spaced(&text, '&', "und"), '€', "Euro"), '§', "Paragraph");
     let text = roman_after(&text, &COUNTED_ROMAN, cardinal);
     numbers(&text)
+}
+
+/// A sign read as its word, with a space where it touches a letter or digit: "Meyer&Co", "§5", "5€".
+fn spaced(text: &str, sign: char, word: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut parts = text.split(sign).peekable();
+    while let Some(part) = parts.next() {
+        out.push_str(part);
+        if let Some(next) = parts.peek() {
+            if part.ends_with(char::is_alphanumeric) {
+                out.push(' ');
+            }
+            out.push_str(word);
+            if next.starts_with(char::is_alphanumeric) {
+                out.push(' ');
+            }
+        }
+    }
+    out
+}
+
+/// What is before an abbreviation without its lone "1" ("1 Mio."), if it ends so; "1,5 Mio." and "21 Mio." do not.
+fn without_lone_one(before: &str) -> Option<&str> {
+    let head = before.trim_end().strip_suffix('1')?;
+    (!head.ends_with(|c: char| c.is_alphanumeric() || c == ',' || c == '.')).then_some(head)
 }
 
 fn abbreviations(text: &str) -> String {
@@ -174,15 +212,24 @@ fn abbreviations(text: &str) -> String {
         };
         let next = text[m.end()..].trim_start().chars().next();
         let capital = next.is_some_and(char::is_uppercase);
-        let dot = when == When::Ends && (capital || next.is_none());
+        let dot = next.is_none() || when == When::Ends && capital;
         let read = match when {
             When::Always | When::Ends => true,
             When::Digit => next.is_some_and(|c| c.is_ascii_digit()),
             When::Capital => capital,
         };
         if read {
-            out.push_str(&text[last..m.start()]);
-            out.push_str(words);
+            let before = &text[last..m.start()];
+            match (ONE_OF.iter().find(|o| o.0 == form), without_lone_one(before)) {
+                (Some(one), Some(head)) => {
+                    out.push_str(head);
+                    out.push_str(one.1);
+                }
+                _ => {
+                    out.push_str(before);
+                    out.push_str(words);
+                }
+            }
             if dot {
                 out.push('.');
             }
@@ -266,7 +313,8 @@ fn plain(digits: &str, before: &str, after: &str) -> (String, usize) {
         return (if opens { capitalized(&word) } else { word }, 1);
     }
     let capital = after.trim_start().chars().next().is_some_and(char::is_uppercase);
-    if n == 1 && capital && after.starts_with(char::is_whitespace) {
+    let numbered = before.split_whitespace().next_back().is_some_and(|w| NUMBERING.contains(&w.to_lowercase().as_str()));
+    if n == 1 && capital && after.starts_with(char::is_whitespace) && !numbered {
         return ("ein".to_string(), 0);
     }
     (digits_or(digits, year), 0)
@@ -496,6 +544,14 @@ mod tests {
             ("Er nahm Nr. 5 auf S. 12 für 3 € & mehr.", "Er nahm Nummer fünf auf Seite zwölf für drei Euro und mehr."),
             ("Der Abend usw.", "Der Abend und so weiter."),
             ("Er umsegelte das Kap. Dann ging er, mit 5 mal.", "Er umsegelte das Kap. Dann ging er, mit fünf mal."),
+            ("Es kostet 5 Mio. Euro und 2 Mrd. Dollar.", "Es kostet fünf Millionen Euro und zwei Milliarden Dollar."),
+            ("Nach 20 Min. Pause, 3 Std. Fahrt und 10 Sek. Stille.", "Nach zwanzig Minuten Pause, drei Stunden Fahrt und zehn Sekunden Stille."),
+            ("General a. D. Müller kam.", "General außer Dienst Müller kam."),
+            ("Es kostet 1 Mio. Euro.", "Es kostet eine Million Euro."),
+            ("Es kostet 1,5 Mio. Euro.", "Es kostet eins Komma fünf Millionen Euro."),
+            ("Es kostet 5 Mio.", "Es kostet fünf Millionen."),
+            ("Teil 1 Die Wüste, Band 1 Der Aufbruch", "Teil eins Die Wüste, Band eins Der Aufbruch"),
+            ("Meyer&Co kam, §5 gilt, €5 und 5€.", "Meyer und Co kam, Paragraph fünf gilt, Euro fünf und fünf Euro."),
         ] {
             assert_eq!(read_out(text), want);
         }

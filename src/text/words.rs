@@ -19,6 +19,15 @@ static GERMAN: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
 });
 const GERMAN_PART: usize = 4;
 const GERMAN_LINKS: [&str; 5] = ["s", "es", "n", "en", "e"];
+/// The words another may have run into in German ("derkelmar", "nichtmehr"), so no part of a compound:
+/// no preposition, which is also a verb's prefix.
+pub const GERMAN_LITTLE: [&str; 37] = [
+    "der", "die", "das", "dem", "den", "des", "eine", "einen", "einem", "einer", "eines", "und", "oder", "aber",
+    "auch", "nicht", "sich", "sie", "er", "es", "ich", "du", "wir", "ihr", "als", "noch", "doch", "immer", "ganz",
+    "sehr", "schon", "dann", "denn", "wenn", "weil", "dass", "daß",
+];
+/// Words that end a run-together pair ("immerwieder") but also start true compounds ("wiederkehr").
+const GERMAN_NEVER_LAST: [&str; 3] = ["mehr", "wieder", "genau"];
 
 const PREFIXES: [&str; 5] =["over", "under", "out", "fore", "counter"];
 
@@ -60,16 +69,21 @@ pub fn known_in(word: &str, language: Language) -> bool {
 }
 
 /// Two or three listed parts of at least four letters, a linking s, es, n, en or e allowed between them:
-/// "leuchtturmwärter", "liebesbrief". What is listed with a shorter part ("hauptbahnhof") is in the list.
+/// "leuchtturmwärter", "liebesbrief"; a little word is no part ("nichtmehr"). What is listed with a shorter part ("hauptbahnhof") is in the list.
 fn german_compound(w: &[char], parts: usize) -> bool {
     if parts < 2 {
         return false;
     }
-    let listed = |cs: &[char]| GERMAN.contains(cs.iter().collect::<String>().as_str());
+    let listed = |cs: &[char]| {
+        let s: String = cs.iter().collect();
+        let little = GERMAN_LITTLE.contains(&s.as_str()) || GERMAN_NEVER_LAST.contains(&s.as_str());
+        GERMAN.contains(s.as_str()) && !little
+    };
     // A first part may have lost its ending: "leucht-turm" (leuchten), "schul-buch" (Schule).
     let stem = |cs: &[char]| {
         let s: String = cs.iter().collect();
-        GERMAN.contains(s.as_str()) || ["e", "en"].iter().any(|e| GERMAN.contains(format!("{s}{e}").as_str()))
+        !GERMAN_LITTLE.contains(&s.as_str())
+            && (GERMAN.contains(s.as_str()) || ["e", "en"].iter().any(|e| GERMAN.contains(format!("{s}{e}").as_str())))
     };
     (GERMAN_PART..=w.len().saturating_sub(GERMAN_PART)).any(|i| {
         stem(&w[..i])
@@ -209,7 +223,8 @@ mod tests {
         for w in ["Haus", "häuser", "daß", "Leuchtturmwärter", "Hundehütte", "Liebesbrief"] {
             assert!(known_in(w, g), "{w}");
         }
-        for w in ["Hauus", "Xarbon", "Müler"] {
+        // little words run together are no compound
+        for w in ["Hauus", "Xarbon", "Müler", "nichtmehr", "nochnicht", "immerwieder", "dochnicht", "ganzgenau", "einenmann"] {
             assert!(!known_in(w, g), "{w}");
         }
     }

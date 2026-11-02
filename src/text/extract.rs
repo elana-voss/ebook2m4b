@@ -8,7 +8,7 @@
 //! Each block's text goes through clean.rs, the chapters through misprints.rs. A German book has its own
 //! patterns (the _DE statics; each also knows "Cover" and "Copyright") and its own words in a made title.
 use crate::model::judge::Judge;
-use crate::text::clean::clean_in;
+use crate::text::clean::{clean_in, roman};
 use crate::text::language::Language;
 use crate::book::{self, Book, Elem, Node, re};
 use anyhow::Result;
@@ -374,7 +374,7 @@ fn tidy(paras: &[String], titles: &std::collections::HashSet<String>, language: 
     static CUT: LazyLock<Regex> = LazyLock::new(|| re(r"[a-z]-$"));
     static ENDS: LazyLock<Regex> = LazyLock::new(|| re(r#"[.!?:;"'’”)\]—-]$"#));
     static CUT_DE: LazyLock<Regex> = LazyLock::new(|| re(r"[a-zäöüß]-$"));
-    static ENDS_DE: LazyLock<Regex> = LazyLock::new(|| re(r#"[.!?:;"'’”“„«»›‹)\]—–-]$"#));
+    static ENDS_DE: LazyLock<Regex> = LazyLock::new(|| re(r#"[.!?:;"'’”“«‹)\]—–-]$"#)); // „ » › open a quote
     let (cut, ends) = (of(language, &CUT, &CUT_DE), of(language, &ENDS, &ENDS_DE));
     let mut joined: Vec<String> = Vec::new();
     for t in paras {
@@ -416,11 +416,18 @@ fn title(t: &str, language: Language) -> String {
         LazyLock::new(|| re(r"\b(CHAPTER|BOOK|PART|VOLUME|PROLOGUE|EPILOGUE)\b"));
     let mut t = t.trim().to_string();
     let bare = BARE.captures(&t).is_some_and(|c| c.get(1).is_none_or(|r| ROMAN.is_match(r.as_str())));
-    static COUNTED: LazyLock<Regex> = LazyLock::new(|| re(r"(?i)^\d+\.?\s+(kapitel|teil|buch)\b"));
+    static COUNTED: LazyLock<Regex> =
+        LazyLock::new(|| re(r"(?i)^(?:\d+|([IVXLC]+))\.?\s+((?:kapitel|teil|buch)\b.*)"));
     if bare && language == Language::English {
         t = format!("Chapter {t}"); // a bare number starts it
-    } else if bare && !COUNTED.is_match(&t) {
-        t = format!("Kapitel {t}"); // not "1. Kapitel"
+    } else if bare {
+        t = match COUNTED.captures(&t) {
+            None => format!("Kapitel {t}"), // not "1. Kapitel"
+            Some(c) => match c.get(1) {
+                Some(numeral) => format!("{}. {}", roman(numeral.as_str()), &c[2]), // "II. Kapitel" as "2. Kapitel"
+                None => t.clone(),
+            },
+        };
     }
     let t = clean_in(&t, language); // Roman numerals to words
     let t = CAPS_WORD
@@ -708,6 +715,10 @@ mod tests {
         assert_eq!(title("12 DER SEE", Language::German), "Kapitel zwölf Der See");
         let once = title("1. Kapitel", Language::German);
         assert_eq!(once.to_lowercase().matches("kapitel").count(), 1, "{once}");
+        assert_eq!(title("II. Kapitel", Language::German), "Zweites Kapitel");
+        assert_eq!(title("III. Teil", Language::German), "Dritter Teil");
+        assert_eq!(title("IV.", Language::German), "Kapitel vier.");
+        assert_eq!(title("1 DER SEE", Language::German), "Kapitel eins Der See");
     }
 
     #[test]
@@ -748,10 +759,16 @@ mod tests {
     }
 
     #[test]
-    fn german_paragraphs_cut_by_a_page_are_joined_also_at_a_low_quote() {
+    fn german_paragraphs_cut_by_a_page_are_joined_also_at_an_opening_quote() {
         let p = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
-        let t = tidy(&p(&["Sie sagte „", "ja und ging"]), &Default::default(), Language::German);
-        assert_eq!(t.len(), 2, "{t:?}"); // „ ends it: a mark, no cut sentence
+        for open in ["„", "»", "›"] {
+            let t = tidy(&p(&[&format!("Sie sagte {open}"), "ja und ging"]), &Default::default(), Language::German);
+            assert_eq!(t.len(), 1, "{t:?}");
+        }
+        for close in ["“", "«", "‹"] {
+            let t = tidy(&p(&[&format!("Sie sagte {close}"), "und ging"]), &Default::default(), Language::German);
+            assert_eq!(t.len(), 2, "{t:?}");
+        }
         let t = tidy(&p(&["er ging", "nach Hause."]), &Default::default(), Language::German);
         assert_eq!(t, ["er ging nach Hause."]);
     }

@@ -29,7 +29,8 @@ static SPACES: LazyLock<Regex> = LazyLock::new(|| re(r"\s+"));
 static GERMAN_UTF8: LazyLock<Regex> =
     LazyLock::new(|| re(r"Ã([¡-¿‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ€])"));
 static GERMAN_HYPHEN: LazyLock<Regex> = LazyLock::new(|| re(r"(\p{L}+)- (\p{Ll}+)"));
-const GERMAN_AFTER_HYPHEN: [&str; 6] = ["und", "oder", "bis", "sowie", "wie", "noch"];
+const GERMAN_AFTER_HYPHEN: [&str; 11] =
+    ["und", "oder", "bis", "sowie", "wie", "noch", "beziehungsweise", "respektive", "sowohl", "als", "aber"];
 
 fn no_stray_marks(text: &str) -> String {
     text.chars()
@@ -141,7 +142,7 @@ pub(super) fn roman_after(text: &str, pattern: &Regex, words: fn(u128) -> String
 }
 
 /// By the subtracting rule, whatever the order: what is subtracted is always less than what follows it.
-fn roman(s: &str) -> u128 {
+pub(super) fn roman(s: &str) -> u128 {
     let n: Vec<i64> = s
         .chars()
         .map(|c| match c {
@@ -340,6 +341,8 @@ mod tests {
         let de = |t| clean_in(t, Language::German);
         assert_eq!(de("Mit 12 km/h, z. B. hier."), "Mit zwölf Kilometer pro Stunde, zum Beispiel hier.");
         assert_eq!(de("Der Schlüs- sel und die Haus- und Hoftür"), "Der Schlüssel und die Haus- und Hoftür");
+        assert_eq!(de("Garten- beziehungsweise Hoftür"), "Garten- beziehungsweise Hoftür");
+        assert_eq!(de("Haupt- als auch Nebensache"), "Haupt- als auch Nebensache");
         assert_eq!(de("A»Nein«, sagte die StraÃŸe Ã¼ber [3] das Ã„nderungs~blatt"), "A»Nein«, sagte die Straße über das Änderungs blatt");
     }
 
