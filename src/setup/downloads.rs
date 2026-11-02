@@ -6,7 +6,8 @@
 //! DirectML from Windows ML's NuGet package (Whisper then runs built in, on Vulkan); Linux refuses it.
 //! Every card: llama.cpp's server (Vulkan on Windows, CUDA on Linux) and Gemma 4 E4B, Whisper large-v3-turbo,
 //! Kokoro v1.0 (onnx-community's export) and the voice asked for, espeak-ng's data (the same files on
-//! both systems, taken from the Windows wheel), and ffmpeg.
+//! both systems, taken from the Windows wheel), and ffmpeg. The German voice (german()) comes only when a
+//! German book is first read; its tokenizer is the same file as the English model's.
 use crate::machine::{Card, Os};
 use anyhow::{Result, bail};
 
@@ -100,6 +101,17 @@ fn programs(os: Os) -> [Item; 2] {
                 Take::Member("imageio_ffmpeg/binaries/ffmpeg-linux-x86_64-v7.0.2", "ffmpeg/ffmpeg")),
         ],
     }
+}
+
+/// Kerstin, the German voice, and the German model she needs.
+pub fn german() -> Vec<Item> {
+    const AT: &str = "https://huggingface.co/crane-local-ai/Kokoro-82M-v1.0-German-ONNX/resolve/eeccb15741604cdc894053e1f4c72bb56c1a59be";
+    vec![
+        item("kerstin-model", &format!("{AT}/onnx/model.onnx"),
+            "f541f868499a8186803c72166a09469821e971dbb1e4cd8eb7dcf593f49da0b1", Take::File("models/kerstin/model.onnx".into())),
+        item("voice-df_kerstin", &format!("{AT}/voices/df_kerstin.bin"),
+            "f96576f656c58221b42ce46c74398dc2a6ffc03b8408abe530d85ebd717ca062", Take::File("models/kerstin/df_kerstin.bin".into())),
+    ]
 }
 
 /// Everything setup fetches on `os` for `card` and `voice`; Linux refuses a card other than NVIDIA's.

@@ -8,6 +8,7 @@
 //! Each block's text goes through clean.rs, the chapters through misprints.rs.
 use crate::model::judge::Judge;
 use crate::text::clean::clean;
+use crate::text::language::Language;
 use crate::book::{self, Book, Elem, Node, re};
 use anyhow::Result;
 use regex::Regex;
@@ -83,13 +84,14 @@ pub fn author(book: &Book) -> String {
 }
 
 /// The first thing heard, "Alice's Adventures in Wonderland, by Lewis Carroll.": the EPUB's title, else fallback.
-pub fn opening(book: &Book, fallback: &str) -> Chapter {
+pub fn opening(book: &Book, fallback: &str, language: Language) -> Chapter {
     let title = clean(book.titles.first().map_or(fallback, |t| t.as_str()));
     let by = author(book);
+    let word = if language == Language::German { "von" } else { "by" };
     let title = if by.is_empty() {
         format!("{title}.")
     } else {
-        format!("{title}, by {by}.")
+        format!("{title}, {word} {by}.")
     };
     Chapter {
         title,
@@ -396,15 +398,8 @@ fn title(t: &str) -> String {
         .into_owned()
 }
 
-/// The book's chapters as read. judge: asked what the rules cannot tell with confidence; without one
-/// the rules decide alone. series: the invented words of the books read before, left as they are.
-/// notes: a line per piece left out, heading refused and word mended, for the reader.
-pub fn chapters(
-    book: &Book,
-    judge: Option<&dyn Judge>,
-    series: &std::collections::HashSet<String>,
-    notes: &mut Vec<String>,
-) -> Result<Vec<Chapter>> {
+/// The text of the book's pages, in order, without Project Gutenberg's licence after the book.
+fn all_blocks(book: &Book) -> Vec<Block> {
     let mut blocks: Vec<Block> = Vec::new();
     for page in book.spine.iter().filter(|p| p.is_doc) {
         if let Some(body) = &page.body {
@@ -416,8 +411,36 @@ pub fn chapters(
         }
     }
     if let Some(end) = blocks.iter().position(|b| GUTENBERG_END.is_match(&b.2)) {
-        blocks.truncate(end); // Project Gutenberg's licence after the book
+        blocks.truncate(end);
     }
+    blocks
+}
+
+/// The language of the book's text; None when it is in neither.
+pub fn language(book: &Book) -> Option<Language> {
+    crate::text::language::detect(all_blocks(book).iter().map(|b| b.2.as_str()))
+}
+
+/// The book's chapters as read. judge: asked what the rules cannot tell with confidence; without one
+/// the rules decide alone. series: the invented words of the books read before, left as they are.
+/// notes: a line per piece left out, heading refused and word mended, for the reader.
+pub fn chapters(
+    book: &Book,
+    judge: Option<&dyn Judge>,
+    series: &std::collections::HashSet<String>,
+    notes: &mut Vec<String>,
+) -> Result<Vec<Chapter>> {
+    let out = unmended(book, judge, notes)?;
+    crate::text::misprints::mend(out, judge, series, notes)
+}
+
+/// The book's chapters by the rules alone, no word mended (misprints.rs and the judge know only English).
+pub fn german_chapters(book: &Book, notes: &mut Vec<String>) -> Result<Vec<Chapter>> {
+    unmended(book, None, notes)
+}
+
+fn unmended(book: &Book, judge: Option<&dyn Judge>, notes: &mut Vec<String>) -> Result<Vec<Chapter>> {
+    let blocks = all_blocks(book);
     let starts = starts(book, &blocks, judge, notes)?;
     let titles: std::collections::HashSet<String> = book
         .toc
@@ -501,7 +524,7 @@ pub fn chapters(
         }
         out = kept;
     }
-    crate::text::misprints::mend(out, judge, series, notes)
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -706,7 +729,8 @@ mod tests {
                 "Left out: Front (short, before the first chapter)"
             ]
         );
-        assert_eq!(opening(&book(vec![], &[]), "f").title, "T, by A & B.");
+        assert_eq!(opening(&book(vec![], &[]), "f", Language::English).title, "T, by A & B.");
+        assert_eq!(opening(&book(vec![], &[]), "f", Language::German).title, "T, von A & B.");
     }
 
     #[test]

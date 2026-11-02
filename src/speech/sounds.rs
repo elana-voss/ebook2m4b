@@ -118,7 +118,8 @@ pub fn heard_error(p: &Pronounce, expected: &str, heard: &str) -> Result<f32> {
         })
         .collect::<Vec<_>>()
         .join(" ");
-    let heard = names_as_heard(p, expected, &heard)?;
+    // the dictionary knows only English: in German every word would be a name, and forgiven
+    let heard = if p.is_german() { heard } else { names_as_heard(p, expected, &heard)? };
     let (a, b) = (sounds(expected)?, sounds(&heard)?);
     let wrong = crate::text::edit::distance_to_prefix(&a, &b);
     Ok(wrong as f32 / a.chars().count().max(SHORT_LINE) as f32)
@@ -461,6 +462,13 @@ mod tests {
         assert_eq!(passage(&cs, "Ul-Mesa"), Some("Mesa’s at Ul-’Mesa."));
         assert_eq!(passage(&cs, "Mesa"), Some("Mesa’s at Ul-’Mesa."));
         assert_eq!(passage(&cs, "Lo-Mar"), Some("A long line of Ul-’Mesa, or Lo-’Mar, and more."));
+    }
+
+    #[test]
+    fn german_words_are_no_names_forgiven() {
+        let g = P.german();
+        let err = heard_error(&g, "Sie sahen den Morgenstern", "Sie sahen den Morgensturm").unwrap();
+        assert!(err > 0.0);
     }
 
     #[test]

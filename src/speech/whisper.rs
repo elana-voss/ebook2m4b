@@ -1,5 +1,5 @@
-//! Whisper hears each spoken chunk back (Whisper large-v3-turbo q8_0, setup's "whisper-model"), in English,
-//! told the book's names as its prompt. An NVIDIA card, on either system: whisper.cpp's CUDA server
+//! Whisper hears each spoken chunk back (Whisper large-v3-turbo q8_0, setup's "whisper-model"), in the book's
+//! language, told the book's names as its prompt. An NVIDIA card, on either system: whisper.cpp's CUDA server
 //! (setup's "whisper-server" folder), started for the book on PORT and killed on drop; another card, on
 //! Windows only: whisper.cpp built in on Vulkan (ear.rs).
 //! Traps: a server already answering on PORT is refused (one left running would hear for us with another
@@ -16,12 +16,12 @@ pub enum Ear {
     /// held only to stop the server when the Ear is dropped
     Server(#[allow(dead_code)] crate::setup::process::Served),
     #[cfg(windows)]
-    Built(crate::speech::ear::WhisperState),
+    Built(crate::speech::ear::WhisperState, &'static str),
 }
 
 impl Ear {
-    /// Whisper on `card`, from setup's pieces.
-    pub fn new(card: Card, found: &BTreeMap<String, PathBuf>) -> Result<Ear> {
+    /// Whisper on `card`, from setup's pieces, hearing `language` ("en", "de").
+    pub fn new(card: Card, found: &BTreeMap<String, PathBuf>, language: &'static str) -> Result<Ear> {
         let model = found
             .get("whisper-model")
             .context("whisper-model is not set up")?;
@@ -31,10 +31,10 @@ impl Ear {
                     .get("whisper-server")
                     .context("whisper-server is not set up")?;
                 let exe = crate::machine::exe(crate::machine::THIS, "whisper-server");
-                start(&dir.join(exe), model).map(Ear::Server)
+                start(&dir.join(exe), model, language).map(Ear::Server)
             }
             #[cfg(windows)]
-            Card::Other => crate::speech::ear::built(model).map(Ear::Built),
+            Card::Other => crate::speech::ear::built(model).map(|s| Ear::Built(s, language)),
             #[cfg(not(windows))]
             Card::Other => anyhow::bail!("on Linux Whisper runs on an NVIDIA card only"),
         }
@@ -67,18 +67,30 @@ impl Ear {
                     .to_string())
             }
             #[cfg(windows)]
-            Ear::Built(state) => crate::speech::ear::hear(state, wav, crate::speech::wav::RATE, hint),
+            Ear::Built(state, language) => {
+                crate::speech::ear::hear(state, wav, crate::speech::wav::RATE, hint, language)
+            }
         }
     }
 }
 
 /// whisper.cpp's server on PORT, once it answers (process::serve, at most 60 s).
-fn start(exe: &Path, model: &Path) -> Result<crate::setup::process::Served> {
-    let args = ["-m", &model.to_string_lossy(), "--port", &PORT.to_string()]
-        .into_iter()
-        .chain(["-t", "4", "-l", "en"])
-        .map(String::from)
-        .collect::<Vec<_>>();
+fn start(exe: &Path, model: &Path, language: &str) -> Result<crate::setup::process::Served> {
     let url = format!("http://127.0.0.1:{PORT}/");
-    crate::setup::process::serve(exe, &args, &url, Duration::from_secs(60))
+    crate::setup::process::serve(exe, &server_args(model, language), &url, Duration::from_secs(60))
+}
+
+fn server_args(model: &Path, language: &str) -> Vec<String> {
+    ["-m", &model.to_string_lossy(), "--port", &PORT.to_string(), "-t", "4", "-l", language]
+        .map(String::from)
+        .to_vec()
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn the_server_hears_the_books_language() {
+        let args = super::server_args(std::path::Path::new("m"), "de");
+        assert_eq!(args[args.len() - 2..], ["-l", "de"]);
+    }
 }

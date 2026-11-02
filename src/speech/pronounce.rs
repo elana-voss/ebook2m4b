@@ -1,4 +1,5 @@
-//! Kokoro's phonemes of a piece of text as Kokoro's own KPipeline (lang "a") gives them, and a text's
+//! Kokoro's phonemes of a piece of text as Kokoro's own KPipeline (lang "a") gives them (a German book:
+//! german(), eSpeak's alone, as misaki's EspeakG2P, as the German voice was trained), and a text's
 //! sounds for the check against Whisper. Our fork of misaki-rs (elana-voss/misaki-rs, by git rev in
 //! Cargo.toml) does the work, as misaki's G2P is set up there: US English, eSpeak for words its
 //! dictionaries lack, nothing left unknown (unk ""). KPipeline makes one piece of up to 510 phonemes, a
@@ -6,7 +7,7 @@
 //! Traps: espeak-ng finds its data by PIPER_ESPEAKNG_DATA_DIRECTORY, which new() sets, so it is made
 //! before other threads start; eSpeak is initialised once per process, so its folder cannot change.
 use anyhow::{Context, Result, bail};
-use misaki_rs::fallback::FallbackError;
+use misaki_rs::fallback::{FallbackError, espeak_g2p};
 use misaki_rs::{EspeakFallback, Fallback, G2P, Language};
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
@@ -33,7 +34,8 @@ impl Fallback for Noted {
 }
 
 pub struct Pronounce {
-    g2p: G2P,
+    /// misaki's, for English; none: German, eSpeak alone
+    g2p: Option<G2P>,
     espeak: Arc<EspeakFallback>,
     /// word: the phonemes it is said with instead of misaki's (sounds.rs's respellings)
     said: Mutex<BTreeMap<String, String>>,
@@ -55,10 +57,23 @@ impl Pronounce {
         let mut g2p = G2P::with_fallback(Language::EnglishUS, Some(Box::new(fallback)));
         g2p.unk = String::new();
         Ok(Self {
-            g2p,
+            g2p: Some(g2p),
             espeak,
             said: Mutex::new(BTreeMap::new()),
         })
+    }
+
+    /// The same eSpeak in German: for a book's German voice, its words all eSpeak's.
+    pub fn german(&self) -> Pronounce {
+        Self {
+            g2p: None,
+            espeak: self.espeak.clone(),
+            said: Mutex::new(BTreeMap::new()),
+        }
+    }
+
+    pub fn is_german(&self) -> bool {
+        self.g2p.is_none()
     }
 
     /// The phonemes Kokoro speaks for `text`, a word given its own (say_as) said with them.
@@ -86,11 +101,13 @@ impl Pronounce {
     }
 
     fn raw(&self, text: &str) -> Result<String> {
-        Ok(self
-            .g2p
-            .g2p(text)
-            .with_context(|| format!("no phonemes for {text:?}"))?
-            .0)
+        match &self.g2p {
+            Some(g2p) => Ok(g2p
+                .g2p(text)
+                .with_context(|| format!("no phonemes for {text:?}"))?
+                .0),
+            None => espeak_g2p(text, "de").with_context(|| format!("no phonemes for {text:?}")),
+        }
     }
 
     /// The words of `text` misaki's dictionaries do not answer, so eSpeak speaks them (say_as ignored);
@@ -261,6 +278,14 @@ pub(crate) mod tests {
     fn a_respelling_is_espeaks() {
         assert_eq!(P.respelt("CHOO-eer").unwrap(), P.respelt("chooeer").unwrap());
         assert!(P.respelt("CHOO-eer").unwrap().starts_with('ʧ'));
+    }
+
+    #[test]
+    fn german_is_espeaks_with_the_voices_symbols() {
+        // the program's own eSpeak against the system's 1.52-dev through the plan's table:
+        // `espeak-ng -q -v de --ipa --tie=^`
+        let got = P.german().phonemes("Die Zeit heißt Euro").unwrap();
+        assert_eq!(got, "diː ʦˈIt hˈIst ˈɔøroː");
     }
 
     #[test]

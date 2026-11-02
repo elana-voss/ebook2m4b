@@ -13,10 +13,11 @@ pub mod hash;
 pub mod http;
 pub mod process;
 
-use crate::setup::downloads::{Item, Take, items};
+use crate::setup::downloads::{Item, Take, german, items};
 use crate::machine::{Card, Os, THIS};
 use crate::setup::archive::Kind;
 use anyhow::{Context, Result, bail};
+use std::cell::OnceCell;
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::{Read, Write};
@@ -52,6 +53,8 @@ pub struct Tools {
     pub card: Card,
     /// each piece's key (as in setup.json) and where it is
     pub found: BTreeMap<String, PathBuf>,
+    /// the German voice's pieces, once the first German book has fetched them
+    german: OnceCell<BTreeMap<String, PathBuf>>,
 }
 
 /// What Kokoro is made from: `ort` holds ONNX Runtime and its provider's libraries; `model` the export
@@ -93,29 +96,58 @@ impl Tools {
         })
     }
 
+    /// Kokoro's files for a German book, fetched the first time one is read: Kerstin's model, as it comes
+    /// (it has no STFT for the GPU patch to change, and runs without it).
+    pub fn kerstin(&self) -> Result<KokoroFiles<'_>> {
+        if self.german.get().is_none() {
+            let mut found = self.found.clone();
+            fetch(german(), &mut found, &self.home, &self.home.join(STATE))?;
+            // set just above if empty; a run is one thread, nothing else sets it
+            let _ = self.german.set(found);
+        }
+        let german = self.german.get().context("the German voice is not set up")?;
+        kerstin_files(german, self.piece("onnxruntime")?, self.card)
+    }
+
     /// The route this card takes, as said to the reader.
     pub fn route(&self) -> &'static str {
         if self.card == Card::Nvidia { "CUDA" } else { "DirectML" }
     }
 }
 
+fn kerstin_files<'a>(
+    german: &'a BTreeMap<String, PathBuf>,
+    ort: &'a Path,
+    card: Card,
+) -> Result<KokoroFiles<'a>> {
+    let piece = |key: &str| {
+        german
+            .get(key)
+            .map(PathBuf::as_path)
+            .with_context(|| format!("{key} is not set up"))
+    };
+    Ok(KokoroFiles {
+        ort,
+        model: piece("kerstin-model")?,
+        tokenizer: piece("kokoro-tokenizer")?,
+        voice: piece("voice-df_kerstin")?,
+        cuda: card == Card::Nvidia,
+    })
+}
+
 pub fn home() -> Result<PathBuf> {
     crate::machine::home(crate::machine::THIS, |k| std::env::var(k).ok())
 }
 
-/// Fetches what is missing for this card and voice; says what it fetches and how far it is.
-pub fn ensure(card: Card, voice: &str) -> Result<Tools> {
-    let home = home()?;
-    fs::create_dir_all(&home)?;
-    let state = home.join("setup.json");
-    let mut found: BTreeMap<String, PathBuf> = match fs::read_to_string(&state) {
-        Ok(s) => serde_json::from_str(&s).context("setup.json")?,
-        Err(_) => BTreeMap::new(), // first start
-    };
-    for it in items(THIS, card, voice)? {
+/// What setup.json holds, under home.
+const STATE: &str = "setup.json";
+
+/// Fetches the items not in place yet into `found`, written to `state` after each.
+fn fetch(list: Vec<Item>, found: &mut BTreeMap<String, PathBuf>, home: &Path, state: &Path) -> Result<()> {
+    for it in list {
         if found
             .get(&it.key)
-            .is_some_and(|p| p.exists() && in_place(&it.take, p, &home))
+            .is_some_and(|p| p.exists() && in_place(&it.take, p, home))
         {
             continue;
         }
@@ -130,14 +162,27 @@ pub fn ensure(card: Card, voice: &str) -> Result<Tools> {
                     .join("downloads")
                     .join(it.url.rsplit('/').next().unwrap_or("download"));
                 download(&it, &archive)?;
-                let at = unpack(THIS, &it.take, &archive, &home)?;
+                let at = unpack(THIS, &it.take, &archive, home)?;
                 fs::remove_file(&archive)?;
                 at
             }
         };
         found.insert(it.key.clone(), at);
-        fs::write(&state, serde_json::to_string_pretty(&found)?)?;
+        fs::write(state, serde_json::to_string_pretty(&found)?)?;
     }
+    Ok(())
+}
+
+/// Fetches what is missing for this card and voice; says what it fetches and how far it is.
+pub fn ensure(card: Card, voice: &str) -> Result<Tools> {
+    let home = home()?;
+    fs::create_dir_all(&home)?;
+    let state = home.join(STATE);
+    let mut found: BTreeMap<String, PathBuf> = match fs::read_to_string(&state) {
+        Ok(s) => serde_json::from_str(&s).context("setup.json")?,
+        Err(_) => BTreeMap::new(), // first start
+    };
+    fetch(items(THIS, card, voice)?, &mut found, &home, &state)?;
     let (key, rel) = gpu_model(card);
     let dst = home.join(rel);
     if !patched_is_current(&found, key, &dst) {
@@ -159,7 +204,7 @@ pub fn ensure(card: Card, voice: &str) -> Result<Tools> {
         // SAFETY: setup runs before this program starts any other thread
         unsafe { std::env::set_var("LD_LIBRARY_PATH", path) };
     }
-    Ok(Tools { home, card, found })
+    Ok(Tools { home, card, found, german: OnceCell::new() })
 }
 
 /// The library search path: `front` first, then `old`'s entries. An empty `old` adds no entry (one empty
@@ -460,6 +505,22 @@ mod tests {
     }
 
     #[test]
+    fn kerstin_has_her_own_model_and_voice_and_the_shared_tokenizer() {
+        let mut found: BTreeMap<String, PathBuf> = ["kerstin-model", "kokoro-tokenizer"]
+            .map(|k| (k.to_string(), PathBuf::from(format!("/{k}"))))
+            .into_iter()
+            .collect();
+        let ort = Path::new("/ort");
+        assert!(kerstin_files(&found, ort, Card::Nvidia).is_err()); // no voice yet
+        found.insert("voice-df_kerstin".into(), "/voice".into());
+        let k = kerstin_files(&found, ort, Card::Other).unwrap();
+        assert_eq!(k.model, Path::new("/kerstin-model"));
+        assert_eq!(k.tokenizer, Path::new("/kokoro-tokenizer"));
+        assert_eq!(k.voice, Path::new("/voice"));
+        assert!(!k.cuda);
+    }
+
+    #[test]
     fn tools_hand_out_their_pieces_by_what_they_are() {
         let found = ["onnxruntime", "kokoro-gpu", "kokoro-tokenizer", "voice-af_zzz", "espeak-ng-data"]
             .map(|k| (k.to_string(), PathBuf::from(format!("/{k}"))));
@@ -467,6 +528,7 @@ mod tests {
             home: PathBuf::new(),
             card: Card::Nvidia,
             found: found.into_iter().collect(),
+            german: OnceCell::new(),
         };
         assert_eq!(tools.espeak().unwrap(), Path::new("/espeak-ng-data"));
         assert_eq!(tools.route(), "CUDA");

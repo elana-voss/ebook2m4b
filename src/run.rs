@@ -1,5 +1,7 @@
-//! One book's run: read, settle its sounds, speak, assemble (make). What it prints is here. main.rs's head
-//! names the output.
+//! One book's run: read, tell its language, settle its sounds, speak, assemble (make). What it prints is
+//! here. main.rs's head names the output. A German book is read by Kerstin (--voice is for English books),
+//! by eSpeak's sounds, with no language model, no mended words and no round trip; a book of neither language
+//! is reported not done.
 use crate::book;
 use crate::machine;
 use crate::model::judge::{Judge, ModelJudge};
@@ -9,6 +11,7 @@ use crate::speech::kokoro::Kokoro;
 use crate::speech::pronounce::Pronounce;
 use crate::speech::whisper::Ear;
 use crate::speech::{assemble, chunks, sounds, speak};
+use crate::text::language::Language;
 use crate::text::{extract, misprints};
 use anyhow::{Context, Result, bail};
 use std::cell::RefCell;
@@ -57,21 +60,45 @@ fn book_name(src: &Path) -> String {
         .to_string()
 }
 
+/// The German voice, its name in work folders and tags.
+const KERSTIN: &str = "df_kerstin";
+
+/// The book's language and chapters; a book in neither language is an error. Only an English book asks
+/// the judge and adds its invented words to series.
+fn read_text(
+    book: &book::Book,
+    series: &mut HashSet<String>,
+    judge: &dyn Judge,
+    notes: &mut Vec<String>,
+) -> Result<(Language, Vec<extract::Chapter>)> {
+    let Some(language) = extract::language(book) else {
+        bail!("The book's text is in neither English nor German: not read");
+    };
+    let chs = if language == Language::German {
+        extract::german_chapters(book, notes)?
+    } else {
+        let chs = extract::chapters(book, Some(judge), series, notes)?;
+        series.extend(misprints::invented(&chs));
+        chs
+    };
+    Ok((language, chs))
+}
+
 /// Each book's chapters, as read, to work/<book>/text.txt and what was changed to changes.txt; the
 /// book's invented words added to series. Prints the chapters' count and words.
 fn read_book(
     src: &Path,
     series: &mut HashSet<String>,
     judge: &dyn Judge,
-) -> Result<(book::Book, Vec<extract::Chapter>)> {
+) -> Result<(book::Book, Language, Vec<extract::Chapter>)> {
     let name = book_name(src);
     let out = Path::new("work").join(&name);
     let book = book::read(src)?;
     let mut notes = Vec::new();
-    let chs = extract::chapters(&book, Some(judge), series, &mut notes)?;
+    let (language, chs) = read_text(&book, series, judge, &mut notes)?;
     judge.close(); // the GPU's memory to the voice; answers stay in the cache
     // the opening (title and authors) first
-    let text: Vec<String> = std::iter::once(extract::opening(&book, &name).title)
+    let text: Vec<String> = std::iter::once(extract::opening(&book, &name, language).title)
         .chain(
             chs.iter()
                 .map(|c| format!("# {}\n\n", c.title) + &c.paragraphs.join("\n\n")),
@@ -80,7 +107,6 @@ fn read_book(
     std::fs::create_dir_all(&out)?;
     std::fs::write(out.join("text.txt"), text.join("\n\n"))?;
     std::fs::write(out.join("changes.txt"), notes.join("\n") + "\n")?;
-    series.extend(misprints::invented(&chs));
     let words: usize = chs
         .iter()
         .flat_map(|c| &c.paragraphs)
@@ -91,7 +117,7 @@ fn read_book(
         chs.len(),
         out.join("text.txt").display()
     );
-    Ok((book, chs))
+    Ok((book, language, chs))
 }
 
 /// work/invented-words.json: the invented words of every book read so far, sorted.
@@ -133,6 +159,7 @@ pub struct Run<'a> {
     voice: &'a str,
     speed: f32,
     pronounce: Pronounce,
+    german: Pronounce,
     ffmpeg: &'a Path,
 }
 
@@ -146,23 +173,32 @@ impl<'a> Run<'a> {
         );
         let pronounce = Pronounce::new(tools.espeak()?)?;
         let ffmpeg = tools.ffmpeg()?;
-        Ok(Run { tools, judge, voice, speed, pronounce, ffmpeg })
+        let german = pronounce.german();
+        Ok(Run { tools, judge, voice, speed, pronounce, german, ffmpeg })
     }
 
-    fn kokoro(&self) -> Result<Kokoro> {
-        Kokoro::new(self.tools.kokoro(self.voice)?, self.speed)
+    fn kokoro(&self, language: Language) -> Result<Kokoro> {
+        let files = match language {
+            Language::English => self.tools.kokoro(self.voice)?,
+            Language::German => self.tools.kerstin()?,
+        };
+        Kokoro::new(files, self.speed)
     }
 
-    fn ear(&self) -> Result<Ear> {
-        Ear::new(self.tools.card, &self.tools.found)
+    fn ear(&self, language: Language) -> Result<Ear> {
+        Ear::new(self.tools.card, &self.tools.found, language.code())
     }
 
     /// The book as read, its opening first.
-    fn chapters(&self, src: &Path, series: &mut HashSet<String>) -> Result<(book::Book, Vec<extract::Chapter>)> {
-        let (book, chs) = read_book(src, series, self.judge)?;
-        let mut all = vec![extract::opening(&book, &book_name(src))];
+    fn chapters(
+        &self,
+        src: &Path,
+        series: &mut HashSet<String>,
+    ) -> Result<(book::Book, Language, Vec<extract::Chapter>)> {
+        let (book, language, chs) = read_book(src, series, self.judge)?;
+        let mut all = vec![extract::opening(&book, &book_name(src), language)];
         all.extend(chs);
-        Ok((book, all))
+        Ok((book, language, all))
     }
 
     /// Chunks are cut before the book's respellings are known, to find its words, and again after (one), so
@@ -186,7 +222,7 @@ impl<'a> Run<'a> {
                 println!("  {} invented words: the round trip", pairs.len()); // the first trip holds them all
                 said = true;
             }
-            let (mut k, mut e) = (self.kokoro()?, self.ear()?);
+            let (mut k, mut e) = (self.kokoro(Language::English)?, self.ear(Language::English)?);
             pairs
                 .iter()
                 .map(|(ps, hint)| {
@@ -210,26 +246,32 @@ impl<'a> Run<'a> {
     /// One book, read to audiobook at `out`.
     fn one(&self, src: &Path, out: &Path, demo: bool, overwrite: bool, series: &mut HashSet<String>) -> Result<()> {
         let name = book_name(src);
-        let (book, all) = self.chapters(src, series)?;
+        let (book, language, all) = self.chapters(src, series)?;
         write_series(series)?;
-        let work = Path::new("work").join(&name).join(self.voice);
         let names = chunks::book_words(&all, 60);
-        let version = self.settle(&self.unsettled(&all), &names)?;
-        let cs = chunks::chunks(&all, &|t| self.pronounce.length(t));
+        let (voice, pronounce, version) = match language {
+            Language::English => (self.voice, &self.pronounce, self.settle(&self.unsettled(&all), &names)?),
+            Language::German => {
+                println!("  German: read by Kerstin");
+                (KERSTIN, &self.german, serde_json::json!({"german": crate::speech::pronounce::RULES}))
+            }
+        };
+        let work = Path::new("work").join(&name).join(voice);
+        let cs = chunks::chunks(&all, &|t| pronounce.length(t));
         speak::speak_book(
             &work,
             &cs,
             self.speed,
             demo,
             overwrite,
-            &mut || self.kokoro(),
-            &mut || self.ear(),
+            &mut || self.kokoro(language),
+            &mut || self.ear(language),
             &|text| chunks::hint(&names, text, HINT_CHARS),
-            &self.pronounce,
+            pronounce,
             &version,
         )?;
         let titles: Vec<String> = all.iter().map(|c| c.title.clone()).collect();
-        let tags = assemble::tags(&name, &extract::author(&book), self.voice);
+        let tags = assemble::tags(&name, &extract::author(&book), voice);
         assemble::audiobook(&work, &cs, &titles, demo, out, &tags, self.ffmpeg)?;
         println!("  wrote {}", out.display());
         Ok(())
@@ -263,6 +305,51 @@ impl<'a> Run<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A judge that must not be asked: a German book's text goes without it.
+    struct NotAsked;
+
+    impl Judge for NotAsked {
+        fn headings(&self, _: &[(String, String)]) -> Result<Vec<bool>> {
+            panic!("asked about headings")
+        }
+        fn read(&self, _: &[(String, String)]) -> Result<Vec<bool>> {
+            panic!("asked what to read")
+        }
+        fn misprints(
+            &self,
+            _: &[(String, String, Option<String>)],
+            _: &[String],
+        ) -> Result<std::collections::HashMap<String, String>> {
+            panic!("asked about misprints")
+        }
+    }
+
+    fn read_txt(file: &str, text: &str) -> Result<(Language, Vec<extract::Chapter>)> {
+        let dir = std::env::temp_dir().join("ebook2m4b-language-test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(file);
+        std::fs::write(&path, text).unwrap();
+        let mut series = HashSet::new();
+        let got = read_text(&book::read(&path).unwrap(), &mut series, &NotAsked, &mut Vec::new());
+        assert!(series.is_empty());
+        got
+    }
+
+    #[test]
+    fn a_german_book_is_read_without_the_judge_or_mending() {
+        let text = "Er sagte, dass die Frau nicht zu Hause ist und der Hund mit dem Mann in den Wald lief.\n\n".repeat(40);
+        let (language, chs) = read_txt("de.txt", &text).unwrap();
+        assert_eq!(language, Language::German);
+        assert!(chs[0].paragraphs[0].contains("die Frau"));
+    }
+
+    #[test]
+    fn a_book_in_neither_language_is_refused() {
+        let text = "Il était une fois une vieille femme qui vivait dans une petite maison.\n\n".repeat(40);
+        let e = read_txt("fr.txt", &text).unwrap_err();
+        assert!(e.to_string().contains("neither English nor German"), "{e}");
+    }
 
     #[test]
     fn a_folder_holds_every_format() {

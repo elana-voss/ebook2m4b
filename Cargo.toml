@@ -8,7 +8,7 @@ license = "GPL-3.0-only"
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 html-escape = "0.3.0"
-misaki-rs = { git = "https://github.com/elana-voss/misaki-rs", rev = "10a2cd8b8e11d247962906da3a5d53e17d2adec0" }
+misaki-rs = { git = "https://github.com/elana-voss/misaki-rs", rev = "9fd64c7563e5548ef00885ac5b78f3ae7b984baf" }
 ort = { version = "=2.0.0-rc.13", features = ["cuda", "directml", "load-dynamic"] }
 percent-encoding = "2"
 regex = "1"
@@ -29,7 +29,7 @@ libloading = "0.8"
 
 # espeak-rs-sys fixed for MSVC, carried in our misaki-rs fork
 [patch.crates-io]
-espeak-rs-sys = { git = "https://github.com/elana-voss/misaki-rs", rev = "10a2cd8b8e11d247962906da3a5d53e17d2adec0" }
+espeak-rs-sys = { git = "https://github.com/elana-voss/misaki-rs", rev = "9fd64c7563e5548ef00885ac5b78f3ae7b984baf" }
 
 [profile.release]
 debug = "line-tables-only"
