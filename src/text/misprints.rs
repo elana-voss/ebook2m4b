@@ -3,6 +3,9 @@
 //! A word is a run of a-z (German: with äöüß, and a capital may start it) with no letter, digit, apostrophe or hyphen on either side:
 //! "I'mtired" and "S-four-otwelve" are too mangled to guess. Words are counted in order of first use,
 //! since ties and the judge's list follow that order.
+//! German parts a run-together word only after a little word (LITTLE_DE): its compounds and verbs ("Bergweg",
+//! "beiziehen") look run together, and spoken they gain nothing. A German answer that only changes a word's
+//! ending is refused: the list lacks a form of a word, it is no misprint.
 use crate::model::judge::Judge;
 use crate::text::edit::distance;
 use crate::text::extract::Chapter;
@@ -72,6 +75,20 @@ fn words(p: &str, language: Language) -> Vec<(usize, usize)> {
         prev = p[..end].chars().next_back();
     }
     out
+}
+
+/// The words another may have run into in German: no preposition, which is also a verb's prefix.
+const LITTLE_DE: [&str; 25] = [
+    "der", "die", "das", "dem", "den", "des", "eine", "einen", "einem", "einer", "eines", "und", "oder", "aber",
+    "auch", "nicht", "sich", "sie", "er", "es", "ich", "du", "wir", "ihr", "als",
+];
+
+/// Whether a German word and its mended form differ only by an ending.
+fn only_ending(w: &str, mended: &str, language: Language) -> bool {
+    language == Language::German
+        && plural_endings(language).iter().any(|e| {
+            w.strip_suffix(e) == Some(mended) || mended.strip_suffix(e) == Some(w)
+        })
 }
 
 /// The endings a form of a word may differ by ("barl", "barls").
@@ -198,6 +215,9 @@ pub fn mend(
             }
             parts.clear();
         }
+        if !english {
+            parts.retain(|(a, _)| LITTLE_DE.contains(a));
+        }
         if !parts.is_empty() {
             // "does not", not "doe snot": the first pair whose rarer part is the most used
             let score = |(a, b): &(&str, &str)| count.get(a).min(count.get(b));
@@ -232,7 +252,7 @@ pub fn mend(
     if let Some(j) = judge.filter(|_| !ask.is_empty()) {
         ask_judge(j, &chs, &count, &ask, &mut fix, language)?;
     }
-    fix.retain(|(w, f, _)| f != w);
+    fix.retain(|(w, f, _)| f != w && !only_ending(w, f, language));
     fix.sort();
     notes.extend(fix.iter().map(|(w, f, why)| format!("{w} -> {f} ({why})")));
     if !fix.is_empty() {
@@ -419,6 +439,32 @@ mod tests {
         assert!(out[0].paragraphs[0].contains("Der Schlüssel sah Xarbon"));
         assert_eq!(invented(&out, g), HashSet::from(["Xarbon".to_string()]));
         assert_eq!(names(&out, g, 5), "Xarbon");
+    }
+
+    #[test]
+    fn german_parts_only_after_a_little_word_never_a_compound_or_verb() {
+        let parts = |w: &str| {
+            let text = format!("{w}. {}Kelmar kelmar Kelmar kelmar.", "der weg es bei ".repeat(20));
+            let mut notes = Vec::new();
+            mend(ch(&[&text]), None, &HashSet::new(), &mut notes, Language::German).unwrap();
+            notes
+        };
+        assert_eq!(parts("derkelmar"), ["derkelmar -> der kelmar (run together)"]);
+        for w in ["Kelmarweg", "Kelmares", "beikelmar"] {
+            assert_eq!(parts(w), Vec::<String>::new(), "{w}");
+        }
+    }
+
+    #[test]
+    fn a_german_answer_that_only_changes_an_ending_is_refused() {
+        let answers = |pairs: &[(&str, &str)]| {
+            Answers(pairs.iter().map(|(a, b)| (a.to_string(), b.to_string())).collect())
+        };
+        let judge = answers(&[("Schlüsselns", "Schlüsseln"), ("Schlüsell", "Schlüssel")]);
+        let mut notes = Vec::new();
+        let text = "Die Schlüsselns und der Schlüsell und der Schlüssel und den Schlüsseln.";
+        mend(ch(&[text]), Some(&judge), &HashSet::new(), &mut notes, Language::German).unwrap();
+        assert_eq!(notes, ["Schlüsell -> Schlüssel (the language model)"]);
     }
 
     #[test]
