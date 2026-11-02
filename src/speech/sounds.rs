@@ -7,6 +7,7 @@
 //! tests; the smaller distance is kept. apply(): the book's words whose respelling won are said with it.
 use crate::speech::chunks::Chunk;
 use crate::speech::pronounce::{Pronounce, holds};
+use crate::text::language::Language;
 use anyhow::{Context, Result};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -99,7 +100,8 @@ const SHORT_LINE: usize = 20;
 /// (repeats the line, finishes the sentence), the voice reads its phonemes and adds none.
 pub fn heard_error(p: &Pronounce, expected: &str, heard: &str) -> Result<f32> {
     let sounds = |t: &str| -> Result<String> {
-        let t = crate::text::clean::clean(t);
+        let language = if p.is_german() { Language::German } else { Language::English };
+        let t = crate::text::clean::clean_in(t, language);
         if t.trim().is_empty() {
             return Ok(String::new()); // nothing heard: no phonemes to ask for
         }
@@ -469,6 +471,8 @@ mod tests {
         let g = P.german();
         let err = heard_error(&g, "Sie sahen den Morgenstern", "Sie sahen den Morgensturm").unwrap();
         assert!(err > 0.0);
+        let err = heard_error(&g, "Es waren zwölf Männer", "Es waren 12 Männer").unwrap();
+        assert_eq!(err, 0.0); // what Whisper writes in digits is read in German too
     }
 
     #[test]

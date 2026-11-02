@@ -2,12 +2,14 @@
 //! the intended word for a misprint, whether a piece of a book is read aloud, whether a line is a
 //! chapter heading, an invented word's English respelling (sounds.rs). Questions go in batches of 20; an item the model leaves out keeps the rules'
 //! choice, and extract.rs and misprints.rs check each answer before using it.
+//! A German book gets German prompts (set_german), written in English and naming the book's language; the
+//! respelling is English only, as eSpeak says a German book's names.
 //! Trap: the prompts, the items' JSON and the schemas make the cache's keys (llm.rs's head); a change
 //! here asks every question again.
 use crate::model::llm::Llm;
 use anyhow::Result;
 use serde_json::{Value, json};
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 
 /// What a language model is asked where the rules cannot tell with confidence (ModelJudge below; extract.rs and misprints.rs ask it).
@@ -23,6 +25,8 @@ pub trait Judge {
         cases: &[(String, String, Option<String>)],
         keep: &[String],
     ) -> Result<std::collections::HashMap<String, String>>;
+    /// Whether the book asked about from here on is German.
+    fn set_german(&self, _: bool) {}
     /// Frees what it holds (the GPU's memory); its answers stay in the cache.
     fn close(&self) {}
 }
@@ -45,6 +49,23 @@ const HEADING: &str = "You prepare an ebook for an audiobook. Each numbered item
 book, with the start of the text after it. Say whether the line is a heading that starts a new \
 chapter or part, or a sentence of the text itself.";
 
+const MISPRINT_DE: &str = "You proofread a German novel that was scanned with OCR. Each item is a word that is \
+not in the dictionary, with the text around it, and maybe a guess. Answer with what the author \
+wrote: the word spelt right in German with its capital letter kept, or two words if two were run \
+together. The old German spelling (daß, muß, Thür) is right and stands. If the word is right as it \
+stands (a name, a compound, a word the author invented, a rare, foreign or dialect word), answer it \
+unchanged. Words this book uses that are right as they stand: ";
+
+const READ_DE: &str = "You prepare a German ebook for an audiobook. Each numbered item is a piece of the ebook: \
+its title and how it starts. Say whether it is read aloud. Read: the story and the author's own parts \
+(Prolog, Vorwort, Einleitung, Widmung, Epilog, Nachwort, Anhang). Not read: title page (Titelseite), \
+copyright (Impressum), contents (Inhalt, Inhaltsverzeichnis), praise and blurbs (Klappentext), lists of \
+other books, publisher's adverts, previews of other books, notes by whoever scanned or converted the ebook.";
+
+const HEADING_DE: &str = "You prepare a German ebook for an audiobook. Each numbered item is a short line from \
+the book, with the start of the text after it. Say whether the line is a heading that starts a new \
+chapter or part (Kapitel, Teil, Buch), or a sentence of the text itself.";
+
 /// The answer's schema: {"answers": [item, ...]}, every field of the item required.
 fn answers(item: Value) -> Value {
     let required: Vec<&String> = item
@@ -59,9 +80,14 @@ fn answers(item: Value) -> Value {
 
 const RESPELL: &str = "You prepare an English novel for an audiobook. Each item is a word no dictionary has (a name or a word the author invented), with the text around it. Answer how an English reader says it, as an English respelling: its syllables in plain English letters, joined by hyphens, the stressed one in capitals, e.g. Chooir: CHOO-eer, Vasena: vuh-SAY-nuh.";
 
-pub struct ModelJudge(pub RefCell<Llm>);
+pub struct ModelJudge(pub RefCell<Llm>, pub Cell<bool>);
 
 impl ModelJudge {
+    /// The prompt for the book's language.
+    fn prompt(&self, english: &'static str, german: &'static str) -> &'static str {
+        if self.1.get() { german } else { english }
+    }
+
     /// An English respelling ("CHOO-eer") of each (word, passage); a word the model leaves out has none
     /// (sounds.rs).
     pub fn respell(&self, items: &[(String, String)]) -> Result<HashMap<String, String>> {
@@ -120,11 +146,11 @@ impl ModelJudge {
 
 impl Judge for ModelJudge {
     fn headings(&self, items: &[(String, String)]) -> Result<Vec<bool>> {
-        self.yes_no(HEADING, items, ["line", "after"], "heading")
+        self.yes_no(self.prompt(HEADING, HEADING_DE), items, ["line", "after"], "heading")
     }
 
     fn read(&self, items: &[(String, String)]) -> Result<Vec<bool>> {
-        self.yes_no(READ, items, ["title", "start"], "read")
+        self.yes_no(self.prompt(READ, READ_DE), items, ["title", "start"], "read")
     }
 
     fn misprints(
@@ -145,7 +171,7 @@ impl Judge for ModelJudge {
             keep.join(", ")
         };
         let got = self.batches(
-            &format!("{MISPRINT}{keep}."),
+            &format!("{}{keep}.", self.prompt(MISPRINT, MISPRINT_DE)),
             items,
             json!({"word": {"type": "string"}, "fix": {"type": "string"}}),
         )?;
@@ -158,6 +184,10 @@ impl Judge for ModelJudge {
                 ))
             })
             .collect())
+    }
+
+    fn set_german(&self, german: bool) {
+        self.1.set(german);
     }
 
     fn close(&self) {
@@ -180,7 +210,7 @@ mod tests {
             key_env: "PATH".into(),
         };
         (
-            ModelJudge(RefCell::new(Llm::new(place, cache.clone()).unwrap())),
+            ModelJudge(RefCell::new(Llm::new(place, cache.clone()).unwrap()), Cell::new(false)),
             cache,
         )
     }
@@ -218,6 +248,20 @@ mod tests {
             ])
             .unwrap();
         assert_eq!(got, HashMap::from([("Chooir".to_string(), "CHOO-eer".to_string())]));
+        std::fs::remove_file(cache).unwrap();
+    }
+
+    #[test]
+    fn a_german_book_gets_the_german_prompts() {
+        let (url, seen) = fake::server(|_| json!({"answers": []}));
+        let (j, cache) = judge(url, "german");
+        j.set_german(true);
+        j.read(&[("Impressum".into(), "s".into())]).unwrap();
+        j.headings(&[("Erstes Kapitel".into(), "Es".into())]).unwrap();
+        j.misprints(&[("Hauus".into(), "das Hauus".into(), None)], &[]).unwrap();
+        for (_, body) in seen.lock().unwrap().iter() {
+            assert!(body["messages"][0]["content"].as_str().unwrap().contains("German"), "{body}");
+        }
         std::fs::remove_file(cache).unwrap();
     }
 

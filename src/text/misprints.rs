@@ -140,6 +140,16 @@ pub fn invented(chs: &[Chapter], language: Language) -> HashSet<String> {
         .collect()
 }
 
+/// The book's own words for Whisper's hint, most used first: German's capitals don't tell a name
+/// (chunks::book_words does for English).
+pub fn names(chs: &[Chapter], language: Language, n: usize) -> String {
+    let count = Count::of(chs, language);
+    let mine = invented(chs, language);
+    let mut words: Vec<&String> = count.order.iter().filter(|w| mine.contains(*w)).collect();
+    words.sort_by_key(|w| std::cmp::Reverse(count.get(w))); // stable: ties in order of first use
+    words.iter().take(n).map(|w| w.as_str()).collect::<Vec<_>>().join(", ")
+}
+
 /// Mends a scan's misprints in words unknown to English and used once, or recurring beside the English
 /// word they miss (misspelt): two words run together ("andher", "abasket") are parted where both parts
 /// are used elsewhere. The rest, unless a series word (invented() of the books before) or a form of an
@@ -408,6 +418,7 @@ mod tests {
         assert_eq!(notes, ["Schlüsel -> Schlüssel (the rules)"]);
         assert!(out[0].paragraphs[0].contains("Der Schlüssel sah Xarbon"));
         assert_eq!(invented(&out, g), HashSet::from(["Xarbon".to_string()]));
+        assert_eq!(names(&out, g, 5), "Xarbon");
     }
 
     #[test]

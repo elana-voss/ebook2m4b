@@ -1,7 +1,7 @@
 //! One book's run: read, tell its language, settle its sounds, speak, assemble (make). What it prints is
 //! here. main.rs's head names the output. A German book is read by Kerstin (--voice is for English books),
-//! by eSpeak's sounds, with no language model, no mended words and no round trip; a book of neither language
-//! is reported not done.
+//! by eSpeak's sounds, with no round trip (its words are eSpeak's); the language model's questions are put in
+//! German's terms and its misprints mended; a book of neither language is reported not done.
 use crate::book;
 use crate::machine;
 use crate::model::judge::{Judge, ModelJudge};
@@ -14,7 +14,7 @@ use crate::speech::{assemble, chunks, sounds, speak};
 use crate::text::language::Language;
 use crate::text::{extract, misprints};
 use anyhow::{Context, Result, bail};
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
@@ -63,8 +63,8 @@ fn book_name(src: &Path) -> String {
 /// The German voice, its name in work folders and tags.
 const KERSTIN: &str = "df_kerstin";
 
-/// The book's language and chapters; a book in neither language is an error. Only an English book asks
-/// the judge and adds its invented words to series.
+/// The book's language and chapters; a book in neither language is an error. Its invented words go into
+/// series, one file for both languages (German's have capitals, English's none).
 fn read_text(
     book: &book::Book,
     series: &mut HashSet<String>,
@@ -74,13 +74,9 @@ fn read_text(
     let Some(language) = extract::language(book) else {
         bail!("The book's text is in neither English nor German: not read");
     };
-    let chs = if language == Language::German {
-        extract::german_chapters(book, notes)?
-    } else {
-        let chs = extract::chapters(book, Some(judge), series, notes)?;
-        series.extend(misprints::invented(&chs, language));
-        chs
-    };
+    judge.set_german(language == Language::German);
+    let chs = extract::chapters(book, Some(judge), series, notes, language)?;
+    series.extend(misprints::invented(&chs, language));
     Ok((language, chs))
 }
 
@@ -146,10 +142,10 @@ fn write_series(series: &HashSet<String>) -> Result<()> {
 /// The language model, its answers kept in work/llm-cache.json.
 pub fn judge(tools: &Tools) -> Result<ModelJudge> {
     let place = llm::place(&tools.home, &tools.found)?;
-    Ok(ModelJudge(RefCell::new(llm::Llm::new(
-        place,
-        "work/llm-cache.json".into(),
-    )?)))
+    Ok(ModelJudge(
+        RefCell::new(llm::Llm::new(place, "work/llm-cache.json".into())?),
+        Cell::new(false),
+    ))
 }
 
 /// What making a book needs.
@@ -204,7 +200,7 @@ impl<'a> Run<'a> {
     /// Chunks are cut before the book's respellings are known, to find its words, and again after (one), so
     /// none passes Kokoro's limit as it is spoken.
     fn unsettled(&self, all: &[extract::Chapter]) -> Vec<chunks::Chunk> {
-        chunks::chunks(all, &|t| self.pronounce.unsettled_length(t))
+        chunks::chunks(all, &|t| self.pronounce.unsettled_length(t), Language::English)
     }
 
     /// The book's invented words through the round trip (sounds::settle; Kokoro and Whisper leave the GPU
@@ -248,7 +244,10 @@ impl<'a> Run<'a> {
         let name = book_name(src);
         let (book, language, all) = self.chapters(src, series)?;
         write_series(series)?;
-        let names = chunks::book_words(&all, 60);
+        let names = match language {
+            Language::English => chunks::book_words(&all, 60),
+            Language::German => misprints::names(&all, language, 60),
+        };
         let (voice, pronounce, version) = match language {
             Language::English => (self.voice, &self.pronounce, self.settle(&self.unsettled(&all), &names)?),
             Language::German => {
@@ -257,7 +256,7 @@ impl<'a> Run<'a> {
             }
         };
         let work = Path::new("work").join(&name).join(voice);
-        let cs = chunks::chunks(&all, &|t| pronounce.length(t));
+        let cs = chunks::chunks(&all, &|t| pronounce.length(t), language);
         speak::speak_book(
             &work,
             &cs,
@@ -306,22 +305,26 @@ impl<'a> Run<'a> {
 mod tests {
     use super::*;
 
-    /// A judge that must not be asked: a German book's text goes without it.
-    struct NotAsked;
+    /// A judge that changes nothing and tells whether it was told German.
+    #[derive(Default)]
+    struct Asked(Cell<bool>);
 
-    impl Judge for NotAsked {
-        fn headings(&self, _: &[(String, String)]) -> Result<Vec<bool>> {
-            panic!("asked about headings")
+    impl Judge for Asked {
+        fn headings(&self, items: &[(String, String)]) -> Result<Vec<bool>> {
+            Ok(vec![true; items.len()])
         }
-        fn read(&self, _: &[(String, String)]) -> Result<Vec<bool>> {
-            panic!("asked what to read")
+        fn read(&self, items: &[(String, String)]) -> Result<Vec<bool>> {
+            Ok(vec![true; items.len()])
         }
         fn misprints(
             &self,
-            _: &[(String, String, Option<String>)],
+            cases: &[(String, String, Option<String>)],
             _: &[String],
         ) -> Result<std::collections::HashMap<String, String>> {
-            panic!("asked about misprints")
+            Ok(cases.iter().map(|c| (c.0.clone(), c.0.clone())).collect())
+        }
+        fn set_german(&self, german: bool) {
+            self.0.set(german);
         }
     }
 
@@ -331,13 +334,14 @@ mod tests {
         let path = dir.join(file);
         std::fs::write(&path, text).unwrap();
         let mut series = HashSet::new();
-        let got = read_text(&book::read(&path).unwrap(), &mut series, &NotAsked, &mut Vec::new());
-        assert!(series.is_empty());
+        let judge = Asked::default();
+        let got = read_text(&book::read(&path).unwrap(), &mut series, &judge, &mut Vec::new());
+        assert_eq!(judge.0.get(), got.as_ref().is_ok_and(|g| g.0 == Language::German));
         got
     }
 
     #[test]
-    fn a_german_book_is_read_without_the_judge_or_mending() {
+    fn a_german_book_is_read_with_the_judge_told_so() {
         let text = "Er sagte, dass die Frau nicht zu Hause ist und der Hund mit dem Mann in den Wald lief.\n\n".repeat(40);
         let (language, chs) = read_txt("de.txt", &text).unwrap();
         assert_eq!(language, Language::German);

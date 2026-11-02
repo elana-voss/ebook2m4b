@@ -5,7 +5,13 @@
 //! volume/act/scene and every number as words, and collapses whitespace.
 //! Traps: a year 1100-2099 without a comma is read as a year; what a lookaround would say is checked by
 //! hand (Rust's regex has none).
+//! clean_in() for a book's language: German gets the same mending and marks, its numbers and signs by
+//! german.rs before the stray marks go ("km/h"), a hyphen joined only into a listed word ("Schlüs- sel";
+//! "Haus- und Hoftor" stands), and "A»" stays a quote.
 use crate::book::re;
+use crate::text::german;
+use crate::text::language::Language;
+use crate::text::words::known_in;
 use regex::Regex;
 use std::sync::LazyLock;
 
@@ -19,6 +25,42 @@ static ROMAN: LazyLock<Regex> =
 static NUMBER: LazyLock<Regex> =
     LazyLock::new(|| re(r"(\d{1,3}(?:,\d{3})+(?:\.\d+)?)(\D|$)|\d+(?:\.\d+)?"));
 static SPACES: LazyLock<Regex> = LazyLock::new(|| re(r"\s+"));
+/// German's "ä" as Windows-1252 read it: the second byte may be any of 0x80-0xBF ("Ã„", "ÃŸ").
+static GERMAN_UTF8: LazyLock<Regex> =
+    LazyLock::new(|| re(r"Ã([¡-¿‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ€])"));
+static GERMAN_HYPHEN: LazyLock<Regex> = LazyLock::new(|| re(r"(\p{L}+)- (\p{Ll}+)"));
+const GERMAN_AFTER_HYPHEN: [&str; 6] = ["und", "oder", "bis", "sowie", "wie", "noch"];
+
+fn no_stray_marks(text: &str) -> String {
+    text.chars()
+        .map(|c| if "~`|/[]{}<>^_".contains(c) { ' ' } else { c })
+        .collect()
+}
+
+/// clean() for a book of that language.
+pub fn clean_in(text: &str, language: Language) -> String {
+    if language == Language::English {
+        return clean(text);
+    }
+    let text = CP1252_UTF8.replace_all(text, |c: &regex::Captures| {
+        utf8_dash(&c[1]).unwrap_or_else(|| c[0].to_string())
+    });
+    let text = GERMAN_UTF8.replace_all(&text, |c: &regex::Captures| {
+        let byte = c[1].chars().next().and_then(cp1252_byte);
+        byte.and_then(|b| char::from_u32(0xC0 + b - 0x80)).map_or_else(|| c[0].to_string(), String::from)
+    });
+    let text = NOTE_MARKS.replace_all(&text, "");
+    let text = GERMAN_HYPHEN.replace_all(&text, |c: &regex::Captures| {
+        let whole = format!("{}{}", &c[1], &c[2]);
+        if !GERMAN_AFTER_HYPHEN.contains(&&c[2]) && known_in(&whole, language) {
+            whole
+        } else {
+            c[0].to_string()
+        }
+    });
+    let text = no_stray_marks(&german::read_out(&text));
+    SPACES.replace_all(&text, " ").trim().to_string()
+}
 
 pub fn clean(text: &str) -> String {
     let text = CP1252_UTF8.replace_all(text, |c: &regex::Captures| {
@@ -29,11 +71,7 @@ pub fn clean(text: &str) -> String {
         char::from_u32(0xC0 + low - 0x80).map_or_else(|| c[0].to_string(), String::from)
     });
     let text = NOTE_MARKS.replace_all(&text, "");
-    let text = broken_hyphens(&text);
-    let text: String = text
-        .chars()
-        .map(|c| if "~`|/[]{}<>^_".contains(c) { ' ' } else { c })
-        .collect();
+    let text = no_stray_marks(&broken_hyphens(&text));
     let text = romans(&text);
     let text = NUMBER.replace_all(&text, |c: &regex::Captures| match c.get(1) {
         Some(n) => number(n.as_str()) + &c[2],
@@ -45,13 +83,17 @@ pub fn clean(text: &str) -> String {
 /// Windows-1252's 0x80-0x9F; '\0' where it has no character.
 const CP1252_HIGH: &str = "€\0‚ƒ„…†‡ˆ‰Š‹Œ\0Ž\0\0‘’“”•–—˜™š›œ\0žŸ";
 
+/// The byte Windows-1252 shows as c, from 0x80 up.
+fn cp1252_byte(c: char) -> Option<u32> {
+    match c as u32 {
+        0xA0..=0xFF => Some(c as u32),
+        _ => Some(0x80 + CP1252_HIGH.chars().position(|h| h == c)? as u32),
+    }
+}
+
 /// "a€”": the third byte of an E2 80 xx character (a dash, a quote) read as Windows-1252.
 fn utf8_dash(s: &str) -> Option<String> {
-    let c = s.chars().next()?;
-    let byte = match c as u32 {
-        0xA0..=0xFF => c as u32,
-        _ => 0x80 + CP1252_HIGH.chars().position(|h| h == c)? as u32,
-    };
+    let byte = cp1252_byte(s.chars().next()?)?;
     // E2 80 xx is valid UTF-8 only for a continuation byte; it is then U+2000 + (xx - 0x80)
     if !(0x80..=0xBF).contains(&byte) {
         return None;
@@ -291,6 +333,14 @@ mod tests {
         ] {
             assert_eq!(clean(text), want);
         }
+    }
+
+    #[test]
+    fn german_text_is_read_in_german() {
+        let de = |t| clean_in(t, Language::German);
+        assert_eq!(de("Mit 12 km/h, z. B. hier."), "Mit zwölf Kilometer pro Stunde, zum Beispiel hier.");
+        assert_eq!(de("Der Schlüs- sel und die Haus- und Hoftür"), "Der Schlüssel und die Haus- und Hoftür");
+        assert_eq!(de("A»Nein«, sagte die StraÃŸe Ã¼ber [3] das Ã„nderungs~blatt"), "A»Nein«, sagte die Straße über das Änderungs blatt");
     }
 
     #[test]

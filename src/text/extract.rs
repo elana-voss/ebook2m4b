@@ -5,9 +5,10 @@
 //! One", else each page; contents, copyright and similar pieces and short front matter are left out;
 //! a scene break (<hr>, "* * *") becomes SCENE. Paragraphs cut by a page are joined, words in capitals
 //! read as words. What the rules cannot settle a Judge is asked (judge.rs: a language model).
-//! Each block's text goes through clean.rs, the chapters through misprints.rs.
+//! Each block's text goes through clean.rs, the chapters through misprints.rs. A German book has its own
+//! patterns (the _DE statics; each also knows "Cover" and "Copyright") and its own words in a made title.
 use crate::model::judge::Judge;
-use crate::text::clean::clean;
+use crate::text::clean::clean_in;
 use crate::text::language::Language;
 use crate::book::{self, Book, Elem, Node, re};
 use anyhow::Result;
@@ -56,13 +57,43 @@ static PAGE: LazyLock<Regex> = LazyLock::new(|| {
         r"(?i)^(end of )?pa+g+e(\s+([ivxlc]+|\d+|((one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|(thir|four|fif|six|seven|eigh|nine)teen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|and|of)[\s-]*)+))?\W*$",
     )
 });
+static SKIP_DE: LazyLock<Regex> = LazyLock::new(|| {
+    re(
+        r"(?i)^(inhalt|inhaltsverzeichnis|inhaltsübersicht|impressum|cover|titelseite|titelblatt|titel|index)$|^copyright|^auch von\b|^von (demselben|derselben)\b|proje[ck]t gutenberg",
+    )
+});
+/// The ordinal words of "Erstes Kapitel", "Zwanzigster Teil".
+const ORDINAL_DE: &str = r"(erst|zweit|dritt|viert|fünft|sechst|siebt|siebent|acht|neunt|zehnt|elft|zwölft|\p{L}+zehnt|\p{L}*zigst|\p{L}*ßigst|\p{L}*hundertst)(es|er|e)";
+static HEADING_DE: LazyLock<Regex> = LazyLock::new(|| {
+    re(&format!(
+        r"(?i)^((kapitel|prolog|epilog|vorwort|nachwort|einleitung|buch|teil)\b|{ORDINAL_DE}\s+(kapitel|teil|buch)\b).{{0,80}}$"
+    ))
+});
+static NOTICE_DE: LazyLock<Regex> = LazyLock::new(|| {
+    re(
+        r"(?i)^(inhalt|inhaltsverzeichnis|impressum|cover|titelseite|titelblatt|index)$|^copyright\w*\b.*(©|\(c\)|\b\d{4}\b|\b(neunzehn|zwanzig|zweitausend)\w*)|^copyright\w*\b[^.!?]*$|^auch von\b[^.!?]*$|^alle rechte vorbehalten\W*$|^[^.!?]*proje[ck]t gutenberg[^.!?]*$",
+    )
+});
+static PAGE_DE: LazyLock<Regex> = LazyLock::new(|| {
+    re(
+        r"(?i)^(ende von )?seite(\s+([ivxlc]+|\d+|((ein|zwei|drei|vier|fünf|sechs|sech|sieben|sieb|acht|neun|zehn|elf|zwölf|zwanzig|dreißig|vierzig|fünfzig|sechzig|siebzig|achtzig|neunzig|hundert|tausend|und|s|e)+(\s+von\s+)?)+))?\W*$",
+    )
+});
 static GUTENBERG_END: LazyLock<Regex> =
     LazyLock::new(|| re(r"(?i)^\W*end of (the )?project gutenberg"));
 static BREAK: LazyLock<Regex> =
     LazyLock::new(|| re(r"^(?:\s*[*#~⁂](\s*[*#~⁂])*\s*|\s*[-_=]{3,}\s*)$"));
 static CAPS_RUN: LazyLock<Regex> =
-    LazyLock::new(|| re(r"\b[A-Z][A-Z'’]*(?:\s+[A-Z][A-Z'’]*)+\b"));
-static CAPS_WORD: LazyLock<Regex> = LazyLock::new(|| re(r"\b[A-Z][A-Z'’]+\b"));
+    LazyLock::new(|| re(r"\b[A-ZÄÖÜ][A-ZÄÖÜß'’]*(?:\s+[A-ZÄÖÜ][A-ZÄÖÜß'’]*)+\b"));
+static CAPS_WORD: LazyLock<Regex> = LazyLock::new(|| re(r"\b[A-ZÄÖÜ][A-ZÄÖÜß'’]+\b"));
+
+/// The pattern of the book's language.
+fn of(language: Language, english: &'static LazyLock<Regex>, german: &'static LazyLock<Regex>) -> &'static Regex {
+    match language {
+        Language::English => english,
+        Language::German => german,
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Chapter {
@@ -85,7 +116,7 @@ pub fn author(book: &Book) -> String {
 
 /// The first thing heard, "Alice's Adventures in Wonderland, by Lewis Carroll.": the EPUB's title, else fallback.
 pub fn opening(book: &Book, fallback: &str, language: Language) -> Chapter {
-    let title = clean(book.titles.first().map_or(fallback, |t| t.as_str()));
+    let title = clean_in(book.titles.first().map_or(fallback, |t| t.as_str()), language);
     let by = author(book);
     let word = if language == Language::German { "von" } else { "by" };
     let title = if by.is_empty() {
@@ -146,7 +177,7 @@ fn first_string(e: &Elem) -> Option<(&str, bool)> {
 }
 
 /// (ids seen since the last block, text) for each innermost block of the page.
-fn blocks(body: &Elem) -> Vec<(Vec<String>, String)> {
+fn blocks(body: &Elem, language: Language) -> Vec<(Vec<String>, String)> {
     let mut body = body.clone();
     prune(&mut body);
     let mut all = Vec::new();
@@ -170,7 +201,7 @@ fn blocks(body: &Elem) -> Vec<(Vec<String>, String)> {
                     text = format!("{t}{}", &text[first.len()..]); // a drop cap and its spacer
                 }
             }
-            let text = clean(&text);
+            let text = clean_in(&text, language);
             if !text.is_empty() {
                 let mut inner = Vec::new();
                 el.descendants(&mut inner);
@@ -183,8 +214,8 @@ fn blocks(body: &Elem) -> Vec<(Vec<String>, String)> {
 }
 
 /// A title as compared: "CHAPTER I." and "Chapter I" are the same.
-fn key(title: &str) -> String {
-    clean(title)
+fn key(title: &str, language: Language) -> String {
+    clean_in(title, language)
         .to_lowercase()
         .trim_matches([' ', '.', ':'])
         .to_string()
@@ -241,6 +272,7 @@ fn starts(
     blocks: &[Block],
     judge: Option<&dyn Judge>,
     notes: &mut Vec<String>,
+    language: Language,
 ) -> Result<Vec<(usize, String)>> {
     let mut tries = vec![
         resolve(&book.toc, blocks),
@@ -250,7 +282,7 @@ fn starts(
         let mut heads: Vec<(usize, String)> = blocks
             .iter()
             .enumerate()
-            .filter(|(_, b)| HEADING.is_match(&b.2))
+            .filter(|(_, b)| of(language, &HEADING, &HEADING_DE).is_match(&b.2))
             .map(|(i, b)| (i, b.2.clone()))
             .collect();
         if let Some(j) = judge
@@ -296,6 +328,7 @@ fn starts(
     if !found.is_empty() {
         return Ok(found);
     }
+    let part = if language == Language::German { "Teil" } else { "Part" };
     let pages = (0..blocks.len()).filter(|&i| i == 0 || blocks[i].0 != blocks[i - 1].0);
     Ok(pages
         .enumerate()
@@ -305,7 +338,7 @@ fn starts(
                 if len(&blocks[i].2) < 80 {
                     blocks[i].2.clone()
                 } else {
-                    format!("Part {}", n + 1)
+                    format!("{part} {}", n + 1)
                 },
             )
         })
@@ -336,27 +369,30 @@ fn capitals(text: &str) -> String {
 
 /// Joins paragraphs cut by a page, drops contents lines, links and empty ones, keeps one SCENE
 /// between text, reads lines in capitals as words.
-fn tidy(paras: &[String], titles: &std::collections::HashSet<String>) -> Vec<String> {
+fn tidy(paras: &[String], titles: &std::collections::HashSet<String>, language: Language) -> Vec<String> {
     static LINK: LazyLock<Regex> = LazyLock::new(|| re(r"www\.|https?://"));
     static CUT: LazyLock<Regex> = LazyLock::new(|| re(r"[a-z]-$"));
     static ENDS: LazyLock<Regex> = LazyLock::new(|| re(r#"[.!?:;"'’”)\]—-]$"#));
+    static CUT_DE: LazyLock<Regex> = LazyLock::new(|| re(r"[a-zäöüß]-$"));
+    static ENDS_DE: LazyLock<Regex> = LazyLock::new(|| re(r#"[.!?:;"'’”“„«»›‹)\]—–-]$"#));
+    let (cut, ends) = (of(language, &CUT, &CUT_DE), of(language, &ENDS, &ENDS_DE));
     let mut joined: Vec<String> = Vec::new();
     for t in paras {
         let t = t.trim().to_string();
         let n = len(&t);
         if t.is_empty()
             || LINK.is_match(&t)
-            || n < 60 && PAGE.is_match(&t)
-            || titles.contains(&key(&t))
-            || n < 40 && NOTICE.is_match(&t)
+            || n < 60 && of(language, &PAGE, &PAGE_DE).is_match(&t)
+            || titles.contains(&key(&t, language))
+            || n < 40 && of(language, &NOTICE, &NOTICE_DE).is_match(&t)
         {
             continue;
         }
         let lower = t.chars().next().is_some_and(char::is_lowercase);
         let after_text = joined.last().is_some_and(|l| l != SCENE);
         match joined.last_mut() {
-            Some(last) if lower && CUT.is_match(last) => last.push_str(&t), // a word cut at a line end
-            Some(last) if lower && !ENDS.is_match(last) => {
+            Some(last) if lower && cut.is_match(last) => last.push_str(&t), // a word cut at a line end
+            Some(last) if lower && !ends.is_match(last) => {
                 last.push(' ');
                 last.push_str(&t);
             }
@@ -372,7 +408,7 @@ fn tidy(paras: &[String], titles: &std::collections::HashSet<String>) -> Vec<Str
 
 /// A chapter title as read: "12 THE LAKE" -> "Chapter twelve The Lake"; a word in capitals is a word of
 /// the title, also alone ("ANNA"; Kokoro would spell it).
-fn title(t: &str) -> String {
+fn title(t: &str, language: Language) -> String {
     static BARE: LazyLock<Regex> = LazyLock::new(|| re(r"^(?:\d+\b|([IVXLC]+)(?:[.:]|$))"));
     static ROMAN: LazyLock<Regex> =
         LazyLock::new(|| re(r"^M{0,3}(CM|CD|D?C{0,3})(XC|XL|L?X{0,3})(IX|IV|V?I{0,3})$"));
@@ -380,10 +416,13 @@ fn title(t: &str) -> String {
         LazyLock::new(|| re(r"\b(CHAPTER|BOOK|PART|VOLUME|PROLOGUE|EPILOGUE)\b"));
     let mut t = t.trim().to_string();
     let bare = BARE.captures(&t).is_some_and(|c| c.get(1).is_none_or(|r| ROMAN.is_match(r.as_str())));
-    if bare {
+    static COUNTED: LazyLock<Regex> = LazyLock::new(|| re(r"(?i)^\d+\.?\s+(kapitel|teil|buch)\b"));
+    if bare && language == Language::English {
         t = format!("Chapter {t}"); // a bare number starts it
+    } else if bare && !COUNTED.is_match(&t) {
+        t = format!("Kapitel {t}"); // not "1. Kapitel"
     }
-    let t = clean(&t); // Roman numerals to words
+    let t = clean_in(&t, language); // Roman numerals to words
     let t = CAPS_WORD
         .replace_all(&t, |m: &regex::Captures| {
             if ROMAN.is_match(&m[0]) {
@@ -399,12 +438,12 @@ fn title(t: &str) -> String {
 }
 
 /// The text of the book's pages, in order, without Project Gutenberg's licence after the book.
-fn all_blocks(book: &Book) -> Vec<Block> {
+fn all_blocks(book: &Book, language: Language) -> Vec<Block> {
     let mut blocks: Vec<Block> = Vec::new();
     for page in book.spine.iter().filter(|p| p.is_doc) {
         if let Some(body) = &page.body {
             blocks.extend(
-                self::blocks(body)
+                self::blocks(body, language)
                     .into_iter()
                     .map(|(ids, t)| (page.name.clone(), ids, t)),
             );
@@ -416,9 +455,10 @@ fn all_blocks(book: &Book) -> Vec<Block> {
     blocks
 }
 
-/// The language of the book's text; None when it is in neither.
+/// The language of the book's text; None when it is in neither. Very common words tell it, so the text
+/// cleaned as English does.
 pub fn language(book: &Book) -> Option<Language> {
-    crate::text::language::detect(all_blocks(book).iter().map(|b| b.2.as_str()))
+    crate::text::language::detect(all_blocks(book, Language::English).iter().map(|b| b.2.as_str()))
 }
 
 /// The book's chapters as read. judge: asked what the rules cannot tell with confidence; without one
@@ -429,19 +469,21 @@ pub fn chapters(
     judge: Option<&dyn Judge>,
     series: &std::collections::HashSet<String>,
     notes: &mut Vec<String>,
+    language: Language,
 ) -> Result<Vec<Chapter>> {
-    let out = unmended(book, judge, notes)?;
-    crate::text::misprints::mend(out, judge, series, notes, Language::English)
+    let out = unmended(book, judge, notes, language)?;
+    crate::text::misprints::mend(out, judge, series, notes, language)
 }
 
-/// The book's chapters by the rules alone, no word mended (misprints.rs and the judge know only English).
-pub fn german_chapters(book: &Book, notes: &mut Vec<String>) -> Result<Vec<Chapter>> {
-    unmended(book, None, notes)
-}
-
-fn unmended(book: &Book, judge: Option<&dyn Judge>, notes: &mut Vec<String>) -> Result<Vec<Chapter>> {
-    let blocks = all_blocks(book);
-    let starts = starts(book, &blocks, judge, notes)?;
+fn unmended(
+    book: &Book,
+    judge: Option<&dyn Judge>,
+    notes: &mut Vec<String>,
+    language: Language,
+) -> Result<Vec<Chapter>> {
+    let key = |t: &str| key(t, language);
+    let blocks = all_blocks(book, language);
+    let starts = starts(book, &blocks, judge, notes, language)?;
     let titles: std::collections::HashSet<String> = book
         .toc
         .iter()
@@ -452,7 +494,7 @@ fn unmended(book: &Book, judge: Option<&dyn Judge>, notes: &mut Vec<String>) -> 
     let mut out = Vec::new();
     for (n, (at, t)) in starts.iter().enumerate() {
         let end = starts.get(n + 1).map_or(blocks.len(), |s| s.0);
-        if SKIP.is_match(t) {
+        if of(language, &SKIP, &SKIP_DE).is_match(t) {
             notes.push(format!(
                 "Left out: {t} (a contents, copyright or similar page)"
             ));
@@ -473,10 +515,10 @@ fn unmended(book: &Book, judge: Option<&dyn Judge>, notes: &mut Vec<String>) -> 
                 break;
             }
         }
-        let paras = tidy(&paras, &titles);
+        let paras = tidy(&paras, &titles, language);
         if !paras.is_empty() {
             out.push(Chapter {
-                title: title(t),
+                title: title(t, language),
                 paragraphs: paras,
             });
         }
@@ -506,6 +548,8 @@ fn unmended(book: &Book, judge: Option<&dyn Judge>, notes: &mut Vec<String>) -> 
             .collect();
         let read = j.read(&asked)?;
         static CHAPTER: LazyLock<Regex> = LazyLock::new(|| re(r"(?i)^(chapter|book|part)\b"));
+        static CHAPTER_DE: LazyLock<Regex> =
+            LazyLock::new(|| re(&format!(r"(?i)^(kapitel|buch|teil|{ORDINAL_DE}\s+(kapitel|teil|buch))\b")));
         // The model may drop only a short piece not titled as a chapter: E2B called whole chapters front matter.
         let mut kept = Vec::new();
         for (i, c) in out.into_iter().enumerate() {
@@ -513,7 +557,7 @@ fn unmended(book: &Book, judge: Option<&dyn Judge>, notes: &mut Vec<String>) -> 
                 .iter()
                 .position(|&e| e == i)
                 .is_some_and(|k| !read.get(k).copied().unwrap_or(true));
-            if asked_no && size(&c) < FRONT && !CHAPTER.is_match(&c.title) {
+            if asked_no && size(&c) < FRONT && !of(language, &CHAPTER, &CHAPTER_DE).is_match(&c.title) {
                 notes.push(format!(
                     "Left out: {} (the language model: not read aloud)",
                     c.title
@@ -562,7 +606,7 @@ mod tests {
     }
 
     fn texts(inner: &str) -> Vec<String> {
-        blocks(page("a", inner).body.as_ref().unwrap())
+        blocks(page("a", inner).body.as_ref().unwrap(), Language::English)
             .into_iter()
             .map(|b| b.1)
             .collect()
@@ -580,10 +624,10 @@ mod tests {
     #[test]
     fn only_a_page_mark_is_dropped_as_one() {
         for mark in ["Page", "page twelve", "PAGE iv", "End of page three of two hundred."] {
-            assert!(tidy(&[mark.to_string()], &Default::default()).is_empty(), "{mark}");
+            assert!(tidy(&[mark.to_string()], &Default::default(), Language::English).is_empty(), "{mark}");
         }
         let line = "Page by page, she read it.".to_string();
-        assert_eq!(tidy(std::slice::from_ref(&line), &Default::default()), [line]);
+        assert_eq!(tidy(std::slice::from_ref(&line), &Default::default(), Language::English), [line]);
     }
 
     #[test]
@@ -597,14 +641,14 @@ mod tests {
             "Also by the author",
             "The Project Gutenberg eBook",
         ] {
-            assert!(tidy(&[notice.to_string()], &Default::default()).is_empty(), "{notice}");
+            assert!(tidy(&[notice.to_string()], &Default::default(), Language::English).is_empty(), "{notice}");
         }
         for line in [
             "Copyright is theft, he said.",
             "Also by the lake, she sat.",
             "He read Project Gutenberg.",
         ] {
-            assert_eq!(tidy(&[line.to_string()], &Default::default()), [line]);
+            assert_eq!(tidy(&[line.to_string()], &Default::default(), Language::English), [line]);
         }
     }
 
@@ -618,6 +662,7 @@ mod tests {
             .body
             .as_ref()
             .unwrap(),
+            Language::English,
         );
         assert_eq!(b[0].0, ["x", "c1"]);
         assert_eq!(b[1].0, ["c1"]); // the anchor seen again after the heading
@@ -639,22 +684,76 @@ mod tests {
                 SCENE,
             ]),
             &Default::default(),
+            Language::English,
         );
         assert_eq!(t, ["The Tale Begins here he went on-ward", SCENE, "X"]);
     }
 
     #[test]
     fn titles_read_as_words() {
-        assert_eq!(title("12 THE LAKE"), "Chapter twelve The Lake");
-        assert_eq!(title("CHAPTER One"), "Chapter One");
-        assert_eq!(title("IV."), "Chapter four.");
-        assert_eq!(title("CIVIL."), "Civil."); // only IVXLC, yet no numeral
-        assert_eq!(title("XL:"), "Chapter forty:");
+        assert_eq!(title("12 THE LAKE", Language::English), "Chapter twelve The Lake");
+        assert_eq!(title("CHAPTER One", Language::English), "Chapter One");
+        assert_eq!(title("IV.", Language::English), "Chapter four.");
+        assert_eq!(title("CIVIL.", Language::English), "Civil."); // only IVXLC, yet no numeral
+        assert_eq!(title("XL:", Language::English), "Chapter forty:");
         // a lone word in capitals is a title's word, not an acronym (Kokoro would spell "ANNA")
-        assert_eq!(title("Chapter Six: ANNA"), "Chapter Six: Anna");
-        assert_eq!(title("30 HOLT’S PLAN"), "Chapter thirty Holt’s Plan");
+        assert_eq!(title("Chapter Six: ANNA", Language::English), "Chapter Six: Anna");
+        assert_eq!(title("30 HOLT’S PLAN", Language::English), "Chapter thirty Holt’s Plan");
         // a Roman numeral clean leaves is no word (review)
-        assert_eq!(title("Chapter II The Lake"), "Chapter II The Lake");
+        assert_eq!(title("Chapter II The Lake", Language::English), "Chapter II The Lake");
+    }
+
+    #[test]
+    fn german_titles_read_in_german() {
+        assert_eq!(title("12 DER SEE", Language::German), "Kapitel zwölf Der See");
+        let once = title("1. Kapitel", Language::German);
+        assert_eq!(once.to_lowercase().matches("kapitel").count(), 1, "{once}");
+    }
+
+    #[test]
+    fn german_chapters_are_found_by_their_headings() {
+        let paragraph = "Es war ein langer Tag, und sie gingen nach Hause. ".repeat(4);
+        let inner = format!(
+            "<p>Erstes Kapitel</p><p>{paragraph}</p><p>12. Kapitel</p><p>{paragraph}</p><p>Dreizehntes Kapitel</p><p>{paragraph}</p>"
+        );
+        let chs = chapters(
+            &book(vec![page("1", &inner)], &[]),
+            None,
+            &Default::default(),
+            &mut Vec::new(),
+            Language::German,
+        )
+        .unwrap();
+        assert_eq!(chs.len(), 3, "{:?}", chs.iter().map(|c| &c.title).collect::<Vec<_>>());
+        assert_eq!(chs[0].title, "Erstes Kapitel");
+    }
+
+    #[test]
+    fn german_contents_and_page_numbers_are_left_out() {
+        let spine = vec![
+            page("1", "<p>Impressum</p><p>Verlag und Druck in Berlin.</p>"),
+            page("2", "<p>Der See</p><p>Sie ging.</p><p>Seite 12</p><p>Er kam.</p>"),
+        ];
+        let toc = [("Impressum", "1.xhtml"), ("Der See", "2.xhtml")];
+        let chs = chapters(
+            &book(spine, &toc),
+            None,
+            &Default::default(),
+            &mut Vec::new(),
+            Language::German,
+        )
+        .unwrap();
+        assert_eq!(chs.iter().map(|c| c.title.as_str()).collect::<Vec<_>>(), ["Der See"]);
+        assert_eq!(chs[0].paragraphs, ["Sie ging.", "Er kam."]);
+    }
+
+    #[test]
+    fn german_paragraphs_cut_by_a_page_are_joined_also_at_a_low_quote() {
+        let p = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let t = tidy(&p(&["Sie sagte „", "ja und ging"]), &Default::default(), Language::German);
+        assert_eq!(t.len(), 2, "{t:?}"); // „ ends it: a mark, no cut sentence
+        let t = tidy(&p(&["er ging", "nach Hause."]), &Default::default(), Language::German);
+        assert_eq!(t, ["er ging nach Hause."]);
     }
 
     #[test]
@@ -688,6 +787,7 @@ mod tests {
             None,
             &Default::default(),
             &mut Vec::new(),
+            Language::English,
         )
         .unwrap();
         assert_eq!(chs[0].paragraphs.len(), 2);
@@ -715,6 +815,7 @@ mod tests {
             Some(&Unchanged),
             &Default::default(),
             &mut notes,
+            Language::English,
         )
         .unwrap();
         assert_eq!(
@@ -744,6 +845,7 @@ mod tests {
             None,
             &Default::default(),
             &mut Vec::new(),
+            Language::English,
         )
         .unwrap();
         assert_eq!(chs.len(), 3);
@@ -756,6 +858,7 @@ mod tests {
             None,
             &Default::default(),
             &mut Vec::new(),
+            Language::English,
         )
         .unwrap();
         assert_eq!(

@@ -6,7 +6,10 @@
 //! characters is spoken with the next (a lone word or two is spoken badly).
 //! Sentences are told apart by rule, not by pysbd: an end mark (. ! ? …, closing quotes after it) before
 //! a space and a capital, digit or quote, unless the word before is a title or an initial ("Mr.", "J.").
+//! German: its quotes („“»«›‹) and capitals too. book_words() is for English, where a capital inside a
+//! sentence tells a name; in German every noun has one (misprints::names).
 use crate::text::extract::{Chapter, SCENE};
+use crate::text::language::Language;
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
@@ -37,12 +40,16 @@ const TITLES: [&str; 14] = [
 ];
 
 /// The sentences of a paragraph.
-pub fn sentences(para: &str) -> Vec<String> {
+pub fn sentences(para: &str, language: Language) -> Vec<String> {
     static END: LazyLock<Regex> =
         LazyLock::new(|| Regex::new(r#"[.!?…]+["'”’)\]]*\s+["'“‘(\[]?[A-Z0-9]"#).unwrap());
+    static END_DE: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r#"[.!?…]+["'”’“«»›‹)\]]*\s+["'“‘„»«›‹(\[]?[A-ZÄÖÜ0-9]"#).unwrap()
+    });
+    let end: &Regex = if language == Language::German { &END_DE } else { &END };
     let mut out = Vec::new();
     let mut start = 0;
-    for m in END.find_iter(para) {
+    for m in end.find_iter(para) {
         let mark = m.start();
         let word = para[start..mark]
             .rsplit(|c: char| c.is_whitespace())
@@ -101,7 +108,7 @@ fn join(a: &str, b: &str) -> String {
     format!("{a} {b}").trim().to_string()
 }
 
-pub fn chunks(chapters: &[Chapter], len: &dyn Fn(&str) -> usize) -> Vec<Chunk> {
+pub fn chunks(chapters: &[Chapter], len: &dyn Fn(&str) -> usize, language: Language) -> Vec<Chunk> {
     let mut out: Vec<Chunk> = Vec::new();
     for (n, ch) in chapters.iter().enumerate() {
         let chunk = |text: String, pause, cut| Chunk {
@@ -123,7 +130,7 @@ pub fn chunks(chapters: &[Chapter], len: &dyn Fn(&str) -> usize) -> Vec<Chunk> {
                 continue;
             }
             let (mut cur, mut cut, mut inside) = (std::mem::take(&mut carry), false, false);
-            for s in sentences(para) {
+            for s in sentences(para, language) {
                 let ps = pieces(&s, LIMIT, len);
                 let last = ps.len() - 1;
                 for (i, p) in ps.into_iter().enumerate() {
@@ -243,7 +250,7 @@ mod tests {
     #[test]
     fn a_long_sentences_pieces_but_the_last_end_inside_it() {
         let long = format!("{}, {}.", "a".repeat(300), "b ".repeat(200).trim()); // over LIMIT
-        let c = chunks(&[ch("1", &[&long, "Next."])], &chars);
+        let c = chunks(&[ch("1", &[&long, "Next."])], &chars, Language::English);
         let cut: Vec<bool> = c.iter().map(|c| c.cut).collect();
         assert_eq!(cut, [false, true, false, false], "{c:?}");
     }
@@ -259,6 +266,7 @@ mod tests {
     fn sentences_end_at_marks_but_not_after_titles_or_initials() {
         let s = sentences(
             "Mr. Baker met J. Smith. \"Go!\" he said. It was 4 p.m. and dark… Then rain.",
+            Language::English,
         );
         assert_eq!(
             s,
@@ -269,6 +277,12 @@ mod tests {
                 "Then rain."
             ]
         );
+    }
+
+    #[test]
+    fn german_sentences_end_before_their_quotes_and_umlauts() {
+        let s = sentences("Er sah es. „Ja!“ Über ihm. »Nein.« Äpfel fielen.", Language::German);
+        assert_eq!(s, ["Er sah es.", "„Ja!“", "Über ihm.", "»Nein.«", "Äpfel fielen."]);
     }
 
     #[test]
@@ -306,7 +320,7 @@ mod tests {
                 ],
             ),
         ];
-        let c = chunks(&book, &chars);
+        let c = chunks(&book, &chars, Language::English);
         let got: Vec<(usize, &str, f32)> = c
             .iter()
             .map(|c| (c.chapter, &c.text[..c.text.len().min(12)], c.pause))
