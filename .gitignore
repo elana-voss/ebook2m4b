@@ -1,5 +1,6 @@
 tools/*
 !tools/espeak_data.py
+!tools/german_words.py
 !tools/linux_build_env.sh
 !tools/whisper_server_build.sh
 work/

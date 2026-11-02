@@ -87,6 +87,12 @@ impl Archive {
 }
 
 /// A link's target when it is a file in the link's own folder (the downloads' links are such), else None.
+pub fn gunzip(bytes: &[u8]) -> Result<String> {
+    let mut text = String::new();
+    flate2::read::GzDecoder::new(bytes).read_to_string(&mut text)?;
+    Ok(text)
+}
+
 fn beside(to: &Path) -> Option<String> {
     let mut parts = to.components();
     match (parts.next(), parts.next()) {

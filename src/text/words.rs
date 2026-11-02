@@ -2,14 +2,25 @@
 //!
 //! known() tells a word of the language from a misprint or an invented name. data/known-words.txt is
 //! misaki's US gold and silver dictionaries in lower case: the lower-case keys of both, and the
-//! capitalised keys of gold lowered.
+//! capitalised keys of gold lowered. known_in() does the same for a book's language; German's list is
+//! LibreOffice's (data/german-words-source.txt), kept gzipped in the program.
+use crate::setup::archive::gunzip;
+use crate::text::language::Language;
 use std::collections::HashSet;
 use std::sync::LazyLock;
 
 static KNOWN: LazyLock<HashSet<&'static str>> =
     LazyLock::new(|| include_str!("../../data/known-words.txt").lines().collect());
 
-const PREFIXES: [&str; 5] = ["over", "under", "out", "fore", "counter"];
+/// data/german-words.txt.gz (its source and licence: data/german-words-source.txt), read at the first German word.
+static GERMAN: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
+    let list = gunzip(include_bytes!("../../data/german-words.txt.gz")).unwrap_or_default();
+    list.leak().lines().collect()
+});
+const GERMAN_PART: usize = 4;
+const GERMAN_LINKS: [&str; 5] = ["s", "es", "n", "en", "e"];
+
+const PREFIXES: [&str; 5] =["over", "under", "out", "fore", "counter"];
 
 const ENDINGS: [(&str, &[&str]); 12] = [
     ("s", &[""]),
@@ -34,6 +45,37 @@ pub fn known(word: &str) -> bool {
     let w = word.to_lowercase();
     let er = w.ends_with("er") || w.ends_with("ers");
     KNOWN.contains(w.as_str()) || derived(&w) && !(er && swapped(&w))
+}
+
+/// A word of the book's language. German: the list, the old spelling ("daß"), or a compound.
+pub fn known_in(word: &str, language: Language) -> bool {
+    if language == Language::English {
+        return known(word);
+    }
+    let w = word.to_lowercase();
+    let listed = |s: &str| GERMAN.contains(s);
+    let modern = w.replace('ß', "ss");
+    listed(&w) || listed(&modern) || german_compound(&w.chars().collect::<Vec<_>>(), 3)
+        || german_compound(&modern.chars().collect::<Vec<_>>(), 3)
+}
+
+/// Two or three listed parts of at least four letters, a linking s, es, n, en or e allowed between them:
+/// "leuchtturmwärter", "liebesbrief". What is listed with a shorter part ("hauptbahnhof") is in the list.
+fn german_compound(w: &[char], parts: usize) -> bool {
+    if parts < 2 {
+        return false;
+    }
+    let listed = |cs: &[char]| GERMAN.contains(cs.iter().collect::<String>().as_str());
+    (GERMAN_PART..=w.len().saturating_sub(GERMAN_PART)).any(|i| {
+        listed(&w[..i])
+            && [0, 1, 2].iter().any(|&link| {
+                let linked: String = w[i..w.len().min(i + link)].iter().collect();
+                let rest = &w[w.len().min(i + link)..];
+                (link == 0 || GERMAN_LINKS.contains(&linked.as_str()))
+                    && rest.len() >= GERMAN_PART
+                    && (listed(rest) || german_compound(rest, parts - 1))
+            })
+    })
 }
 
 /// A dictionary word with two neighbouring letters swapped: "soliders" ("soldiers").
