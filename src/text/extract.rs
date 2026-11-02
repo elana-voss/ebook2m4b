@@ -431,7 +431,7 @@ pub fn chapters(
     notes: &mut Vec<String>,
 ) -> Result<Vec<Chapter>> {
     let out = unmended(book, judge, notes)?;
-    crate::text::misprints::mend(out, judge, series, notes)
+    crate::text::misprints::mend(out, judge, series, notes, Language::English)
 }
 
 /// The book's chapters by the rules alone, no word mended (misprints.rs and the judge know only English).

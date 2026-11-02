@@ -66,8 +66,13 @@ fn german_compound(w: &[char], parts: usize) -> bool {
         return false;
     }
     let listed = |cs: &[char]| GERMAN.contains(cs.iter().collect::<String>().as_str());
+    // A first part may have lost its ending: "leucht-turm" (leuchten), "schul-buch" (Schule).
+    let stem = |cs: &[char]| {
+        let s: String = cs.iter().collect();
+        GERMAN.contains(s.as_str()) || ["e", "en"].iter().any(|e| GERMAN.contains(format!("{s}{e}").as_str()))
+    };
     (GERMAN_PART..=w.len().saturating_sub(GERMAN_PART)).any(|i| {
-        listed(&w[..i])
+        stem(&w[..i])
             && [0, 1, 2].iter().any(|&link| {
                 let linked: String = w[i..w.len().min(i + link)].iter().collect();
                 let rest = &w[w.len().min(i + link)..];
@@ -195,6 +200,17 @@ mod tests {
         }
         for w in ["baker", "bakers", "users", "dyers", "hunters", "taller"] {
             assert!(known(w), "{w}");
+        }
+    }
+
+    #[test]
+    fn german_words_their_old_spelling_and_compounds() {
+        let g = Language::German;
+        for w in ["Haus", "häuser", "daß", "Leuchtturmwärter", "Hundehütte", "Liebesbrief"] {
+            assert!(known_in(w, g), "{w}");
+        }
+        for w in ["Hauus", "Xarbon", "Müler"] {
+            assert!(!known_in(w, g), "{w}");
         }
     }
 

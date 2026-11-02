@@ -78,7 +78,7 @@ fn read_text(
         extract::german_chapters(book, notes)?
     } else {
         let chs = extract::chapters(book, Some(judge), series, notes)?;
-        series.extend(misprints::invented(&chs));
+        series.extend(misprints::invented(&chs, language));
         chs
     };
     Ok((language, chs))
