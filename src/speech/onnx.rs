@@ -8,6 +8,7 @@
 //! - the inverse STFT's NonZero/ScatterND division by the window sum becomes a Where over the same mask;
 //! - on another card (DirectML) also: the three upsampling
 //!   ConvTranspose nodes get pads 1/0 and no output_padding (same output, which DirectML otherwise refuses).
+//!
 //! Kerstin's model has no STFT: it runs as it comes on CUDA, and with only the pads' change on DirectML (pads_only).
 //!
 //! Nodes and initializers no graph output needs any more are dropped.
