@@ -4,7 +4,7 @@
 //! "I'mtired" and "S-four-otwelve" are too mangled to guess. Words are counted in order of first use,
 //! since ties and the judge's list follow that order.
 //! German parts a run-together word only after a little word (LITTLE_DE): its compounds and verbs ("Bergweg",
-//! "beiziehen") look run together, and spoken they gain nothing. A German answer that only changes a word's
+//! "beitreten") look run together, and spoken they gain nothing. A German answer that only changes a word's
 //! ending is refused: the list lacks a form of a word, it is no misprint.
 use crate::model::judge::Judge;
 use crate::text::edit::distance;
