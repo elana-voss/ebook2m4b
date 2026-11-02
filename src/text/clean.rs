@@ -77,14 +77,19 @@ fn broken_hyphens(text: &str) -> String {
 
 /// "Chapter XIV." -> "Chapter fourteen.": only where the line ends or a mark follows ("a scene I saw" stays).
 fn romans(text: &str) -> String {
+    roman_after(text, &ROMAN, cardinal)
+}
+
+/// As `romans`, for a pattern of (word, numeral) and a language's words.
+pub(super) fn roman_after(text: &str, pattern: &Regex, words: fn(u128) -> String) -> String {
     let mut out = String::with_capacity(text.len());
     let (mut last, mut pos) = (0, 0);
-    while let Some(c) = ROMAN.captures_at(text, pos) {
+    while let Some(c) = pattern.captures_at(text, pos) {
         let m = c.get(0).expect("a whole match");
         let rest = text[m.end()..].trim_start();
         if rest.is_empty() || rest.starts_with(['.', ':', ',', ';', '—', '-']) {
             out.push_str(&text[last..m.start()]);
-            out.push_str(&format!("{} {}", &c[1], cardinal(roman(&c[2]))));
+            out.push_str(&format!("{} {}", &c[1], words(roman(&c[2]))));
             last = m.end();
         }
         pos = m.end();
