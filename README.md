@@ -1,11 +1,11 @@
 # ebook2m4b
 
-Turns English ebooks into audiobooks on your graphics card.
+Turns English and German ebooks into audiobooks on your graphics card.
 
 1. Reads mobi, azw3, epub, fb2, docx, txt
 and html
 2. Cleans the text
-3. Speaks it with the Kokoro voice model
+3. Speaks it with the Kokoro voice model (German books: the voice Kerstin, picked up automatically)
 4. Checks the result with Whisper
 5. Writes one M4B file per book, with chapters
 
@@ -44,7 +44,7 @@ as alice.demo.m4a:
 ```
 
 Another voice (Kokoro's English voices start with `af_`, `am_`, `bf_` or `bm_`; the default is
-`af_bella`):
+`af_bella`; a German book is always read by Kerstin):
 
 ```
 ./ebook2m4b samples/alice.epub --voice bm_george
