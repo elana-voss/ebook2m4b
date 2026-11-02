@@ -9,11 +9,11 @@ use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextPar
 
 pub use whisper_rs::WhisperState;
 
-/// What Whisper hears in `wav` (samples at `rate` a second), `hint` its prompt, in `language`.
-pub fn hear(state: &mut WhisperState, wav: &[f32], rate: u32, hint: &str, language: &str) -> Result<String> {
+/// What Whisper hears in `wav` (samples at `rate` a second), `hint` its prompt, in English.
+pub fn hear(state: &mut WhisperState, wav: &[f32], rate: u32, hint: &str) -> Result<String> {
     let wav = resample(wav, rate, 16_000);
     let mut p = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
-    p.set_language(Some(language));
+    p.set_language(Some("en"));
     p.set_temperature_inc(0.0);
     p.set_n_threads(4);
     p.set_initial_prompt(hint);

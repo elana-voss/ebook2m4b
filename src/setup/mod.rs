@@ -97,8 +97,10 @@ impl Tools {
     }
 
     /// Kokoro's files for a German book, fetched the first time one is read: Kerstin's model, as it comes
-    /// (it has no STFT for the GPU patch to change, and runs without it).
+    /// (it has no STFT for the GPU patch to change, and runs without it). NVIDIA only: DirectML refuses the
+    /// model's ConvTranspose, so another card is told so before anything is fetched.
     pub fn kerstin(&self) -> Result<KokoroFiles<'_>> {
+        kerstin_runs_on(self.card)?;
         if self.german.get().is_none() {
             let mut found = self.found.clone();
             fetch(german(), &mut found, &self.home, &self.home.join(STATE))?;
@@ -106,7 +108,7 @@ impl Tools {
             let _ = self.german.set(found);
         }
         let german = self.german.get().context("the German voice is not set up")?;
-        kerstin_files(german, self.piece("onnxruntime")?, self.card)
+        kerstin_files(german, self.piece("onnxruntime")?)
     }
 
     /// The route this card takes, as said to the reader.
@@ -115,11 +117,14 @@ impl Tools {
     }
 }
 
-fn kerstin_files<'a>(
-    german: &'a BTreeMap<String, PathBuf>,
-    ort: &'a Path,
-    card: Card,
-) -> Result<KokoroFiles<'a>> {
+fn kerstin_runs_on(card: Card) -> Result<()> {
+    if card != Card::Nvidia {
+        bail!("German books need an NVIDIA card: the German voice does not run on this one");
+    }
+    Ok(())
+}
+
+fn kerstin_files<'a>(german: &'a BTreeMap<String, PathBuf>, ort: &'a Path) -> Result<KokoroFiles<'a>> {
     let piece = |key: &str| {
         german
             .get(key)
@@ -131,7 +136,7 @@ fn kerstin_files<'a>(
         model: piece("kerstin-model")?,
         tokenizer: piece("kokoro-tokenizer")?,
         voice: piece("voice-df_kerstin")?,
-        cuda: card == Card::Nvidia,
+        cuda: true,
     })
 }
 
@@ -511,13 +516,20 @@ mod tests {
             .into_iter()
             .collect();
         let ort = Path::new("/ort");
-        assert!(kerstin_files(&found, ort, Card::Nvidia).is_err()); // no voice yet
+        assert!(kerstin_files(&found, ort).is_err()); // no voice yet
         found.insert("voice-df_kerstin".into(), "/voice".into());
-        let k = kerstin_files(&found, ort, Card::Other).unwrap();
+        let k = kerstin_files(&found, ort).unwrap();
         assert_eq!(k.model, Path::new("/kerstin-model"));
         assert_eq!(k.tokenizer, Path::new("/kokoro-tokenizer"));
         assert_eq!(k.voice, Path::new("/voice"));
-        assert!(!k.cuda);
+        assert!(k.cuda);
+    }
+
+    #[test]
+    fn german_is_refused_on_a_card_other_than_nvidias() {
+        assert!(kerstin_runs_on(Card::Nvidia).is_ok());
+        let e = kerstin_runs_on(Card::Other).unwrap_err();
+        assert!(e.to_string().contains("NVIDIA"), "{e}");
     }
 
     #[test]
