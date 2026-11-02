@@ -257,14 +257,13 @@ fn number(c: &regex::Captures, before: &str, after: &str) -> (String, usize) {
 /// A plain number: an ordinal, "ein" before a capital, a year, a cardinal.
 fn plain(digits: &str, before: &str, after: &str) -> (String, usize) {
     let n = digits.parse::<u128>().unwrap_or(0);
-    if !is_digit_string(digits) {
-        if let Some(rest) = after.strip_prefix('.') {
-            if let Some(ending) = ordinal_ending(before, rest.trim_start()) {
-                let word = ordinal(n) + ending;
-                let opens = before.trim_end().chars().last().is_none_or(|c| ".!?:".contains(c));
-                return (if opens { capitalized(&word) } else { word }, 1);
-            }
-        }
+    if !is_digit_string(digits)
+        && let Some(rest) = after.strip_prefix('.')
+        && let Some(ending) = ordinal_ending(before, rest.trim_start())
+    {
+        let word = ordinal(n) + ending;
+        let opens = before.trim_end().chars().last().is_none_or(|c| ".!?:".contains(c));
+        return (if opens { capitalized(&word) } else { word }, 1);
     }
     let capital = after.trim_start().chars().next().is_some_and(char::is_uppercase);
     if n == 1 && capital && after.starts_with(char::is_whitespace) {
@@ -363,7 +362,7 @@ fn year(n: u128) -> String {
     if !(1100..=1999).contains(&n) {
         return cardinal(n);
     }
-    let rest = if n % 100 > 0 { below_million(n % 100) } else { String::new() };
+    let rest = if !n.is_multiple_of(100) { below_million(n % 100) } else { String::new() };
     format!("{}hundert{rest}", below_million(n / 100))
 }
 
@@ -410,11 +409,11 @@ fn below_million(n: u128) -> String {
             o => format!("{}und{}", head(o), TENS[(n / 10) as usize]),
         },
         100..=999 => {
-            let rest = if n % 100 > 0 { below_million(n % 100) } else { String::new() };
+            let rest = if !n.is_multiple_of(100) { below_million(n % 100) } else { String::new() };
             format!("{}hundert{rest}", head(n / 100))
         }
         _ => {
-            let rest = if n % 1000 > 0 { below_million(n % 1000) } else { String::new() };
+            let rest = if !n.is_multiple_of(1000) { below_million(n % 1000) } else { String::new() };
             format!("{}tausend{rest}", head(n / 1000))
         }
     }
