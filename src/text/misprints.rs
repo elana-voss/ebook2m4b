@@ -5,7 +5,8 @@
 //! since ties and the judge's list follow that order.
 //! German parts a run-together word only after a little word (GERMAN_LITTLE): its compounds and verbs ("Bergweg",
 //! "beitreten") look run together, and spoken they gain nothing. A German answer that only changes a word's
-//! ending is refused: the list lacks a form of a word, it is no misprint.
+//! ending is refused, and a known word with an ending ("Schlusse") never asked about: the list lacks a form
+//! of a word, it is no misprint.
 use crate::model::judge::Judge;
 use crate::text::edit::distance;
 use crate::text::extract::Chapter;
@@ -190,6 +191,10 @@ pub fn mend(
         let n = count.get(w);
         if len(w) < 4 || known(w) || n > 1 && !misspelt(w, &count, language) {
             continue; // "thier" 28 times beside "their" is mended
+        }
+        // "Schlusse", the old dative of "Schluss": the list lacks it, no misprint
+        if !english && plural_endings(language).iter().any(|e| w.strip_suffix(e).is_some_and(known)) {
+            continue;
         }
         // Both parts used elsewhere in the book: the dictionary alone has "dat", "ings", "snot".
         let mut parts: Vec<(&str, &str)> = w
@@ -471,6 +476,14 @@ mod tests {
         let text = "Die Schlüsselns und der Schlüsell und der Schlüssel und den Schlüsseln.";
         mend(ch(&[text]), Some(&judge), &HashSet::new(), &mut notes, Language::German).unwrap();
         assert_eq!(notes, ["Schlüsell -> Schlüssel (the language model)"]);
+    }
+
+    #[test]
+    fn an_old_german_form_of_a_known_word_is_left() {
+        let judge = Answers(HashMap::from([("Schlusse".to_string(), "Schlüsse".to_string())]));
+        let mut notes = Vec::new();
+        mend(ch(&["Sie kamen zu dem Schlusse."]), Some(&judge), &HashSet::new(), &mut notes, Language::German).unwrap();
+        assert_eq!(notes, Vec::<String>::new());
     }
 
     #[test]
