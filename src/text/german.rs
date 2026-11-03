@@ -27,14 +27,14 @@ const ABBREVIATIONS: &[(&str, &str, When)] = &[
     ("z. B.", "zum Beispiel", When::Always),
     ("z. T.", "zum Teil", When::Always),
     ("d. h.", "das heißt", When::Always),
-    ("u. a.", "unter anderem", When::Ends),
-    ("u. ä.", "und ähnliches", When::Ends),
-    ("o. ä.", "oder ähnliches", When::Ends),
+    ("u. a.", "unter anderem", When::Always),
+    ("u. ä.", "und ähnliches", When::Always),
+    ("o. ä.", "oder ähnliches", When::Always),
     ("u. U.", "unter Umständen", When::Always),
     ("i. d. R.", "in der Regel", When::Always),
     ("a. D.", "außer Dienst", When::Always),
-    ("v. Chr.", "vor Christus", When::Ends),
-    ("n. Chr.", "nach Christus", When::Ends),
+    ("v. Chr.", "vor Christus", When::Always),
+    ("n. Chr.", "nach Christus", When::Always),
     ("u. s. w.", "und so weiter", When::Ends),
     ("usw.", "und so weiter", When::Ends),
     ("etc.", "et cetera", When::Ends),
@@ -79,13 +79,25 @@ const ONE_OF: &[(&str, &str)] = &[
 /// A noun whose number names it ("Teil 1 Die Wüste"): "eins", not the article "ein".
 const NUMBERING: [&str; 6] = ["kapitel", "teil", "band", "buch", "nummer", "seite"];
 
-/// The table's forms with any space between their pieces; the longest first.
+/// Capitalized it is the Latin year ("A. D. 1500"), so only its small form is read.
+const LATIN_LOOKALIKE: &str = "a. D.";
+
+/// The table's forms with any space between their pieces, a first small letter either way; the longest first.
 static ABBREVIATION: LazyLock<Regex> = LazyLock::new(|| {
     let mut forms: Vec<&str> = ABBREVIATIONS.iter().map(|a| a.0).collect();
     forms.sort_by_key(|f| std::cmp::Reverse(f.len()));
     let forms: Vec<String> = forms
         .iter()
-        .map(|f| f.split(' ').map(regex::escape).collect::<Vec<_>>().join(r"\s*"))
+        .map(|f| {
+            let form = f.split(' ').map(regex::escape).collect::<Vec<_>>().join(r"\s*");
+            match f.chars().next() {
+                // a sentence may start with it: "Z. B."
+                Some(c) if c.is_lowercase() && *f != LATIN_LOOKALIKE => {
+                    format!("[{c}{}]{}", capitalized(&c.to_string()), &form[c.len_utf8()..])
+                }
+                _ => form,
+            }
+        })
         .collect();
     re(&format!(r"\b(?:{})", forms.join("|")))
 });
@@ -182,7 +194,7 @@ fn spaced(text: &str, sign: char, word: &str) -> String {
     while let Some(part) = parts.next() {
         out.push_str(part);
         if let Some(next) = parts.peek() {
-            if part.ends_with(char::is_alphanumeric) {
+            if out.ends_with(char::is_alphanumeric) {
                 out.push(' ');
             }
             out.push_str(word);
@@ -205,11 +217,13 @@ fn abbreviations(text: &str) -> String {
     let mut last = 0;
     for m in ABBREVIATION.find_iter(text) {
         let form: String = m.as_str().split_whitespace().collect();
-        let Some(&(_, words, when)) =
-            ABBREVIATIONS.iter().find(|a| a.0.replace(' ', "") == form)
-        else {
+        let Some(&(table, words, when)) = ABBREVIATIONS.iter().find(|a| {
+            let spaceless = a.0.replace(' ', "");
+            spaceless == form || capitalized(&spaceless) == form
+        }) else {
             continue; // the pattern is made of the table's forms
         };
+        let words = if table.replace(' ', "") == form { words.to_string() } else { capitalized(words) };
         let next = text[m.end()..].trim_start().chars().next();
         let capital = next.is_some_and(char::is_uppercase);
         let dot = next.is_none() || when == When::Ends && capital;
@@ -227,7 +241,7 @@ fn abbreviations(text: &str) -> String {
                 }
                 _ => {
                     out.push_str(before);
-                    out.push_str(words);
+                    out.push_str(&words);
                 }
             }
             if dot {
@@ -489,6 +503,24 @@ pub fn cardinal(n: u128) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_noun_after_an_abbreviation_is_no_new_sentence() {
+        assert_eq!(read_out("Sie kauften u. a. Brot."), "Sie kauften unter anderem Brot.");
+        assert_eq!(read_out("Das war 44 v. Chr. Rom."), "Das war vierundvierzig vor Christus Rom.");
+        assert_eq!(read_out("Sie kam usw. Dann ging sie."), "Sie kam und so weiter. Dann ging sie.");
+    }
+
+    #[test]
+    fn an_abbreviation_starting_a_sentence_is_read() {
+        assert_eq!(read_out("Z. B. Hunde. Usw. und Ca. zehn."), "Zum Beispiel Hunde. Und so weiter und Circa zehn.");
+        assert_eq!(read_out("Anno A. D. Rom"), "Anno A. D. Rom"); // the Latin year, not "außer Dienst"
+    }
+
+    #[test]
+    fn two_signs_in_a_row_are_two_words() {
+        assert_eq!(read_out("§§ 5 und 6"), "Paragraph Paragraph fünf und sechs");
+    }
 
     #[test]
     fn cardinals_read_in_german_words() {
