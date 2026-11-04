@@ -369,8 +369,9 @@ fn capitals(text: &str) -> String {
 }
 
 /// Joins paragraphs cut by a page, drops contents lines, links and empty ones, keeps one SCENE
-/// between text, reads lines in capitals as words. A line equal to a title goes, unless it ends a sentence
-/// with no title beside it: "Silence." in a chapter titled Silence is text.
+/// between text, reads lines in capitals as words. A line equal to a title goes, unless it ends a sentence,
+/// comes once in the chapter (more often: a running header) and has no title beside it, a line without a
+/// letter passed over (a contents page's numbers): "Silence." in a chapter titled Silence is text.
 fn tidy(paras: &[String], titles: &std::collections::HashSet<String>, language: Language) -> Vec<String> {
     static LINK: LazyLock<Regex> = LazyLock::new(|| re(r"www\.|https?://"));
     static CUT: LazyLock<Regex> = LazyLock::new(|| re(r"[a-z]-$"));
@@ -378,7 +379,8 @@ fn tidy(paras: &[String], titles: &std::collections::HashSet<String>, language: 
     static CUT_DE: LazyLock<Regex> = LazyLock::new(|| re(r"[a-zäöüß]-$"));
     static ENDS_DE: LazyLock<Regex> = LazyLock::new(|| re(r#"[.!?:;"'’”“«‹)\]—–-]$"#)); // „ » › open a quote
     let (cut, ends) = (of(language, &CUT, &CUT_DE), of(language, &ENDS, &ENDS_DE));
-    let is_title = |p: &String| titles.contains(&key(p.trim(), language));
+    let is_title = |p: &&String| titles.contains(&key(p.trim(), language));
+    let has_letter = |p: &&String| p.chars().any(char::is_alphabetic);
     let mut joined: Vec<String> = Vec::new();
     for (i, t) in paras.iter().enumerate() {
         let t = t.trim().to_string();
@@ -386,10 +388,11 @@ fn tidy(paras: &[String], titles: &std::collections::HashSet<String>, language: 
         if t.is_empty()
             || LINK.is_match(&t)
             || n < 60 && of(language, &PAGE, &PAGE_DE).is_match(&t)
-            || is_title(&t)
+            || is_title(&&t)
                 && !(t.ends_with(['.', '!', '?'])
-                    && !paras[..i].last().is_some_and(is_title)
-                    && !paras.get(i + 1).is_some_and(is_title))
+                    && paras.iter().filter(|p| p.trim() == t).count() == 1
+                    && !paras[..i].iter().rev().find(has_letter).is_some_and(|p| is_title(&p))
+                    && !paras[i + 1..].iter().find(has_letter).is_some_and(|p| is_title(&p)))
             || n < 40 && of(language, &NOTICE, &NOTICE_DE).is_match(&t)
         {
             continue;
@@ -693,6 +696,11 @@ mod tests {
         assert_eq!(tidy(&p(&["He listened.", "Silence", "It went on."]), &titles, Language::English), ["He listened.", "It went on."]);
         // beside other titles: a contents page, end mark or not
         assert!(tidy(&p(&["The Road", "Caught!", "The Chain"]), &titles, Language::English).is_empty());
+        // a contents page with its page numbers as lines of their own
+        assert_eq!(tidy(&p(&["Caught!", "19", "The Chain", "31"]), &titles, Language::English), ["19", "31"]);
+        // a running header: seen more than once in the chapter
+        let t = tidy(&p(&["He ran.", "Caught!", "He fell.", "Caught!", "He rose."]), &titles, Language::English);
+        assert_eq!(t, ["He ran.", "He fell.", "He rose."]);
     }
 
     #[test]
