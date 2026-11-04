@@ -9,17 +9,18 @@
 //! as NVIDIA. Linux has the NVIDIA route only: setup (downloads.rs) refuses another card there.
 //! The hidden --card other (main.rs) takes the other route on any machine, to test it where NVIDIA is found.
 //!
-//! The heat wait (the hardware's safety): before each chunk and each question to the language model
-//! the GPU's and CPU's temperatures are looked at, at most every 30 s; at GPU 83 C or CPU 90 C the run
-//! waits, looking again every 30 s, until both are below. The GPU's from nvidia-smi (none on another
+//! The heat wait (the hardware's safety): one thread reads the GPU's and CPU's temperatures every 30 s (the
+//! readers take seconds, so the speech does not wait for them); before each chunk and each question to the
+//! language model the latest reading is looked at, the first call waiting for the first reading; at GPU 83 C or CPU 90 C the run
+//! waits until a reading has both below. The GPU's from nvidia-smi (none on another
 //! card: 0), the CPU's from the hottest thermal zone: Windows' (tenths of kelvin, by PowerShell), Linux's
 //! /sys/class/thermal/thermal_zone*/temp and its CPU drivers' /sys/class/hwmon/hwmon*/temp*_input
 //! (thousandths of a degree; WSL2 has none: 0).
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::sync::{Arc, Condvar, LazyLock, Mutex};
+use std::time::Duration;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Os {
@@ -176,22 +177,56 @@ fn hot((gpu, cpu): (f32, f32)) -> bool {
     gpu >= HOT_GPU || cpu >= HOT_CPU
 }
 
-/// Waits while the machine is hot; looks at most every 30 s, shared by the whole run.
-pub fn wait_while_hot() {
-    static LAST: Mutex<Option<Instant>> = Mutex::new(None);
-    let mut last = LAST.lock().unwrap_or_else(|e| e.into_inner());
-    if last.is_some_and(|t| t.elapsed() < EVERY) {
-        return;
+/// The latest reading, made on a thread of its own so that a wait costs the speech nothing.
+struct Watch {
+    latest: Mutex<Option<(f32, f32)>>,
+    read: Condvar,
+}
+
+impl Watch {
+    /// Starts the thread: `read` at once and then every `every`. It ends with the program.
+    fn start(read: impl Fn() -> (f32, f32) + Send + 'static, every: Duration) -> Arc<Watch> {
+        let w = Arc::new(Watch { latest: Mutex::new(None), read: Condvar::new() });
+        let own = Arc::clone(&w);
+        std::thread::spawn(move || {
+            loop {
+                let t = read(); // no lock held across the reading
+                *own.latest.lock().unwrap_or_else(|e| e.into_inner()) = Some(t);
+                own.read.notify_all();
+                std::thread::sleep(every);
+            }
+        });
+        w
     }
-    loop {
-        let t = temperatures();
-        if !hot(t) {
-            break;
+
+    /// The latest reading; before the first one it waits for it, so nothing starts hot.
+    fn now(&self) -> (f32, f32) {
+        let mut t = self.latest.lock().unwrap_or_else(|e| e.into_inner());
+        loop {
+            if let Some(r) = *t {
+                return r;
+            }
+            t = self.read.wait(t).unwrap_or_else(|e| e.into_inner());
         }
-        println!("  hot (GPU {:.0} C, CPU {:.0} C): waiting", t.0, t.1);
-        std::thread::sleep(EVERY);
     }
-    *last = Some(Instant::now());
+
+    /// Sleeps `nap` at a time while the latest reading says hot.
+    fn wait_while_hot(&self, nap: Duration) {
+        loop {
+            let t = self.now();
+            if !hot(t) {
+                return;
+            }
+            println!("  hot (GPU {:.0} C, CPU {:.0} C): waiting", t.0, t.1);
+            std::thread::sleep(nap);
+        }
+    }
+}
+
+/// Waits while the machine is hot, by the one watch of the whole run (started by the first call).
+pub fn wait_while_hot() {
+    static WATCH: LazyLock<Arc<Watch>> = LazyLock::new(|| Watch::start(temperatures, EVERY));
+    WATCH.wait_while_hot(EVERY);
 }
 
 #[cfg(test)]
@@ -229,6 +264,43 @@ mod tests {
     #[test]
     fn other_asked_for_is_taken_whatever_card_is_found() {
         assert_eq!(chosen(Some("other")), Card::Other);
+    }
+
+    #[test]
+    fn the_wait_never_waits_for_a_reader_after_the_first_reading() {
+        let reads = Arc::new(Mutex::new(0));
+        let n = Arc::clone(&reads);
+        let w = Watch::start(
+            move || {
+                *n.lock().unwrap() += 1;
+                std::thread::sleep(Duration::from_millis(300));
+                (40.0, 40.0)
+            },
+            Duration::from_secs(60),
+        );
+        w.wait_while_hot(Duration::ZERO); // the first reading: 300 ms
+        let t = std::time::Instant::now();
+        for _ in 0..100 {
+            w.wait_while_hot(Duration::ZERO);
+        }
+        assert!(t.elapsed() < Duration::from_millis(100), "{:?}", t.elapsed());
+        assert_eq!(*reads.lock().unwrap(), 1);
+    }
+
+    #[test]
+    fn a_hot_reading_holds_the_wait_until_a_cool_one() {
+        let reads = Arc::new(Mutex::new(0));
+        let n = Arc::clone(&reads);
+        let w = Watch::start(
+            move || {
+                let mut k = n.lock().unwrap();
+                *k += 1;
+                if *k < 3 { (HOT_GPU, 0.0) } else { (0.0, 0.0) }
+            },
+            Duration::from_millis(10),
+        );
+        w.wait_while_hot(Duration::from_millis(1));
+        assert!(*reads.lock().unwrap() >= 3);
     }
 
     #[test]

@@ -4,7 +4,7 @@
 //! the voice's style row at phoneme count - 1, the speed asked for; phonemes Kokoro's vocabulary lacks are
 //! dropped. A chunk without phonemes gives a tenth of a second of silence.
 //! Trap: the CUDA provider's DLLs find cuDNN and cuBLAS through PATH, so new() puts the "ort" folder first on
-//! it; it runs before any other thread reads the environment. On Linux the loader reads LD_LIBRARY_PATH only
+//! it (on Windows, whose environment calls are thread-safe; the heat watch's thread may be running). On Linux the loader reads LD_LIBRARY_PATH only
 //! when a program starts, so new() loads every library of the folder itself first (preload), each visible to
 //! those loaded after it, and ONNX Runtime's CUDA provider then finds them loaded; that provider itself is
 //! left to ONNX Runtime: loaded first, it crashes.
@@ -36,7 +36,7 @@ impl Kokoro {
                 let path = std::env::var_os("PATH").unwrap_or_default();
                 let mut dirs = vec![ort.to_path_buf()];
                 dirs.extend(std::env::split_paths(&path));
-                // SAFETY: called before any other thread of this program reads the environment
+                // SAFETY: Windows' environment calls are thread-safe, and the heat watch's thread may be spawning
                 unsafe { std::env::set_var("PATH", std::env::join_paths(dirs)?) };
             }
             #[cfg(unix)]
