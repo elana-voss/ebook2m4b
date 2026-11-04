@@ -54,9 +54,7 @@ pub fn join(pieces: &[Piece], lead: f32, dest: &Path) -> Result<u64> {
     f.write_all(&crate::speech::wav::wav(&[], RATE))?; // the header; its sizes are written at the end
     let mut n = 0u64;
     let mut put = |f: &mut BufWriter<std::fs::File>, s: &[f32]| -> Result<()> {
-        for x in s {
-            f.write_all(&x.to_le_bytes())?;
-        }
+        crate::speech::wav::put_samples(f, s)?;
         n += s.len() as u64;
         Ok(())
     };
@@ -189,7 +187,7 @@ pub fn audiobook(
 ) -> Result<()> {
     let file = |i: usize| work.join(format!("{i:06}.wav"));
     let groups: Vec<Part> = if demo {
-        let picks = crate::speech::chunks::demo_picks(cs, 60.0);
+        let picks = crate::speech::chunks::demo_picks(cs, crate::speech::chunks::DEMO_SECONDS);
         let names: &[&str] = if picks.len() == 2 {
             &["Start", "End"]
         } else {

@@ -22,10 +22,16 @@ pub fn wav(samples: &[f32], rate: u32) -> Vec<u8> {
     b.extend_from_slice(&32u16.to_le_bytes());
     b.extend_from_slice(b"data");
     b.extend_from_slice(&data.to_le_bytes());
-    for s in samples {
-        b.extend_from_slice(&s.to_le_bytes());
-    }
+    put_samples(&mut b, samples).expect("a Vec takes all");
     b
+}
+
+/// Samples as a WAV's data: 32-bit float, little-endian.
+pub fn put_samples(to: &mut impl std::io::Write, samples: &[f32]) -> std::io::Result<()> {
+    for s in samples {
+        to.write_all(&s.to_le_bytes())?;
+    }
+    Ok(())
 }
 
 /// A mono WAV's samples, 32-bit float as speak.rs writes them.

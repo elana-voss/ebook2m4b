@@ -63,7 +63,7 @@ impl Kokoro {
             .map_err(e)?
             .with_parallel_execution(false)
             .map_err(e)?
-            .with_intra_threads(4) // half the physical cores
+            .with_intra_threads(crate::machine::CORES)
             .map_err(e)?
             .with_execution_providers([ep])
             .map_err(e)?

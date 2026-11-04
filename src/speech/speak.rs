@@ -5,7 +5,7 @@
 //! start, the middle and the end.
 //! Each chunk goes to part.wav first, then is renamed: a stopped run leaves no half chunk.
 //! Each new chunk is heard back by Whisper (whisper.rs, told the book's names: `hint` of the chunk's text) and compared by sound
-//! (sounds::heard_error); over MAX_ERROR it is spoken again, the best of TRIES kept, and one still over goes into
+//! (heard::heard_error); over MAX_ERROR it is spoken again, the best of TRIES kept, and one still over goes into
 //! unsure.txt as "<n> TAB <error> TAB <text>". Voice and Whisper are made at the first chunk to speak
 //! and leave the GPU when speak_all ends (the language model gets its memory for the next book).
 use crate::speech::chunks::Chunk;
@@ -33,7 +33,7 @@ fn checked(
     for _ in 0..TRIES {
         let wav = say()?;
         let heard = hear(&wav)?;
-        let err = crate::speech::sounds::heard_error(p, text, &heard)?;
+        let err = crate::speech::heard::heard_error(p, text, &heard)?;
         if best.as_ref().is_none_or(|b| err < b.1) {
             best = Some((wav, err, heard));
         }
@@ -145,7 +145,7 @@ pub fn speak_book(
     std::fs::create_dir_all(work)?;
     std::fs::write(&id_file, &id)?;
     let picks: Vec<usize> = if demo {
-        crate::speech::chunks::demo_picks(cs, 60.0).concat()
+        crate::speech::chunks::demo_picks(cs, crate::speech::chunks::DEMO_SECONDS).concat()
     } else {
         (0..cs.len()).collect()
     };
@@ -160,14 +160,7 @@ mod tests {
         String::new()
     }
 
-    fn chunk(text: &str) -> Chunk {
-        Chunk {
-            chapter: 0,
-            text: text.into(),
-            pause: 0.0,
-            cut: false,
-        }
-    }
+    use crate::speech::chunks::plain as chunk;
 
     use crate::speech::pronounce::tests::P;
 

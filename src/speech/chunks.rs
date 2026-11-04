@@ -8,6 +8,8 @@
 //! a space and a capital, digit or quote, unless the word before is a title or an initial ("Mr.", "J.").
 //! German: its quotes („“»«›‹) and capitals too. book_words() is for English, where a capital inside a
 //! sentence tells a name; in German every noun has one (misprints::names).
+//! Length is costly (misaki over the text), so a grown chunk's is the sum of its parts', and only one
+//! within MARGIN of LIMIT is counted whole; chapters are cut on up to machine::CORES threads.
 use crate::text::extract::{Chapter, SCENE};
 use crate::text::language::Language;
 use regex::Regex;
@@ -24,6 +26,13 @@ const SCENE_PAUSE: f32 = 1.5;
 const TITLE: f32 = 1.2;
 const CHAPTER: f32 = 3.0; // before the next title
 const OPENING: f32 = 2.0; // after the book's title; LEAD (assemble.rs) goes before it
+/// A joined text's length differs from the sum of its parts' by less than this.
+const MARGIN: usize = 100;
+#[cfg(test)]
+pub static DRIFT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// The seconds --demo speaks, at each of its places.
+pub const DEMO_SECONDS: f32 = 60.0;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Chunk {
@@ -33,6 +42,17 @@ pub struct Chunk {
     pub pause: f32,
     /// it ends inside a sentence (a long sentence's piece but its last)
     pub cut: bool,
+}
+
+/// A chunk of `text` in chapter 0, for tests.
+#[cfg(test)]
+pub fn plain(text: &str) -> Chunk {
+    Chunk {
+        chapter: 0,
+        text: text.into(),
+        pause: 0.0,
+        cut: false,
+    }
 }
 
 const TITLES: [&str; 14] = [
@@ -73,14 +93,19 @@ pub fn sentences(para: &str, language: Language) -> Vec<String> {
 /// A sentence longer than `limit` (by `len`) cut into pieces of about even length, none over it: at
 /// the `;` or `:` nearest the even point within a quarter of the even length either side, else the `,`
 /// nearest it there, else the space nearest it (Kokoro's pipeline cuts at these marks too). The even
-/// point is counted in characters (phonemes run about one per character).
-fn pieces(sentence: &str, limit: usize, len: &dyn Fn(&str) -> usize) -> Vec<String> {
+/// point is counted in characters (phonemes run about one per character). Each piece with its length.
+fn pieces(sentence: &str, limit: usize, len: &dyn Fn(&str) -> usize) -> Vec<(String, usize)> {
     let mut out = Vec::new();
     let mut rest = sentence.trim();
-    while len(rest) > limit {
+    loop {
+        let whole = len(rest);
+        if whole <= limit {
+            out.push((rest.to_string(), whole));
+            return out;
+        }
         let cs: Vec<(usize, char)> = rest.char_indices().collect();
         let n = cs.len();
-        let even = n / len(rest).div_ceil(limit);
+        let even = n / whole.div_ceil(limit);
         let reach = even / 4;
         let space = |c: usize| cs.get(c).is_some_and(|x| x.1.is_whitespace());
         // a cut c: the piece is the characters before it, a space at c (after the mark at c - 1)
@@ -94,71 +119,106 @@ fn pieces(sentence: &str, limit: usize, len: &dyn Fn(&str) -> usize) -> Vec<Stri
             .or_else(|| near(""))
             .or_else(|| (1..n).filter(|&c| space(c)).min_by_key(|&c| c.abs_diff(even)))
             .unwrap_or(even.max(1));
-        while c > 1 && len(rest[..cs[c].0].trim_end()) > limit {
+        let mut head = len(rest[..cs[c].0].trim_end());
+        while c > 1 && head > limit {
             c = (1..c).rev().find(|&i| space(i)).unwrap_or(c - 1);
+            head = len(rest[..cs[c].0].trim_end());
         }
-        out.push(rest[..cs[c].0].trim_end().to_string());
+        out.push((rest[..cs[c].0].trim_end().to_string(), head));
         rest = rest[cs[c].0..].trim_start();
     }
-    out.push(rest.to_string());
-    out
 }
 
 fn join(a: &str, b: &str) -> String {
     format!("{a} {b}").trim().to_string()
 }
 
-pub fn chunks(chapters: &[Chapter], len: &dyn Fn(&str) -> usize, language: Language) -> Vec<Chunk> {
-    let mut out: Vec<Chunk> = Vec::new();
-    for (n, ch) in chapters.iter().enumerate() {
-        let chunk = |text: String, pause, cut| Chunk {
-            chapter: n,
-            text,
-            pause,
-            cut,
-        };
-        out.push(chunk(ch.title.clone(), TITLE, false));
-        let mut carry = String::new();
-        for (k, para) in ch.paragraphs.iter().enumerate() {
-            if para == SCENE {
-                if !carry.is_empty() {
-                    out.push(chunk(std::mem::take(&mut carry), PARAGRAPH, false));
-                }
-                if let Some(last) = out.last_mut() {
-                    last.pause = SCENE_PAUSE;
-                }
-                continue;
+pub fn chunks(
+    chapters: &[Chapter],
+    len: &(dyn Fn(&str) -> usize + Sync),
+    language: Language,
+) -> Vec<Chunk> {
+    let cut = |n, ch: &Chapter| chapter(n, ch, len, language, MARGIN);
+    crate::machine::in_order(chapters, cut).concat()
+}
+
+/// Would `cur` (of length about `cur_len`, the sum) and `p` joined pass LIMIT? Counted whole only within
+/// `margin` of LIMIT; the sum decides outside it.
+fn over(cur: &str, cur_len: usize, p: &str, p_len: usize, len: &dyn Fn(&str) -> usize, margin: usize) -> bool {
+    let sum = cur_len + 1 + p_len;
+    if sum.abs_diff(LIMIT) > margin {
+        return sum > LIMIT;
+    }
+    let whole = len(&join(cur, p));
+    #[cfg(test)]
+    DRIFT.fetch_max(whole.abs_diff(sum), std::sync::atomic::Ordering::Relaxed);
+    whole > LIMIT
+}
+
+/// Chapter `n`'s chunks.
+fn chapter(
+    n: usize,
+    ch: &Chapter,
+    len: &dyn Fn(&str) -> usize,
+    language: Language,
+    margin: usize,
+) -> Vec<Chunk> {
+    let chunk = |text: String, pause, cut| Chunk {
+        chapter: n,
+        text,
+        pause,
+        cut,
+    };
+    let mut out = vec![chunk(ch.title.clone(), TITLE, false)];
+    let mut carry = (String::new(), 0);
+    for (k, para) in ch.paragraphs.iter().enumerate() {
+        if para == SCENE {
+            if !carry.0.is_empty() {
+                out.push(chunk(std::mem::take(&mut carry).0, PARAGRAPH, false));
             }
-            let (mut cur, mut cut, mut inside) = (std::mem::take(&mut carry), false, false);
-            for s in sentences(para, language) {
-                let ps = pieces(&s, LIMIT, len);
-                let last = ps.len() - 1;
-                for (i, p) in ps.into_iter().enumerate() {
-                    if !cur.is_empty() && len(&join(&cur, &p)) > LIMIT {
-                        out.push(chunk(std::mem::replace(&mut cur, p), SENTENCE, inside));
-                        cut = true;
-                    } else {
-                        cur = join(&cur, &p);
-                    }
-                    inside = i < last; // the chunk so far ends inside this sentence
-                }
+            if let Some(last) = out.last_mut() {
+                last.pause = SCENE_PAUSE;
             }
-            if !cur.is_empty() && !cut && cur.chars().count() < SHORT && k + 1 < ch.paragraphs.len()
-            {
-                carry = cur;
-            } else if !cur.is_empty() {
-                out.push(chunk(cur, PARAGRAPH, false));
+            continue;
+        }
+        let ((mut cur, mut cur_len), mut cut, mut inside) = (std::mem::take(&mut carry), false, false);
+        for s in sentences(para, language) {
+            let ps = pieces(&s, LIMIT, len);
+            let last = ps.len() - 1;
+            for (i, (p, p_len)) in ps.into_iter().enumerate() {
+                if cur.is_empty() {
+                    (cur, cur_len) = (p, p_len);
+                } else if over(&cur, cur_len, &p, p_len, len, margin) {
+                    out.push(chunk(std::mem::replace(&mut cur, p), SENTENCE, inside));
+                    cur_len = p_len;
+                    cut = true;
+                } else {
+                    cur = join(&cur, &p);
+                    cur_len += 1 + p_len;
+                }
+                inside = i < last; // the chunk so far ends inside this sentence
             }
         }
-        if let Some(last) = out.last_mut() {
-            last.pause = if ch.paragraphs.is_empty() {
-                OPENING
-            } else {
-                CHAPTER
-            }; // the title alone
+        if !cur.is_empty() && !cut && cur.chars().count() < SHORT && k + 1 < ch.paragraphs.len() {
+            carry = (cur, cur_len);
+        } else if !cur.is_empty() {
+            out.push(chunk(cur, PARAGRAPH, false));
         }
     }
+    if let Some(last) = out.last_mut() {
+        last.pause = if ch.paragraphs.is_empty() {
+            OPENING
+        } else {
+            CHAPTER
+        }; // the title alone
+    }
     out
+}
+
+/// Every chunk by counting each joined text whole: the reference the sum is compared with.
+#[cfg(test)]
+pub fn chunks_counted(chapters: &[Chapter], len: &dyn Fn(&str) -> usize, language: Language) -> Vec<Chunk> {
+    chapters.iter().enumerate().flat_map(|(n, ch)| chapter(n, ch, len, language, usize::MAX)).collect()
 }
 
 /// The book's names, most used first, for Whisper: capitalised words inside a sentence ("Mad Hatter",
@@ -194,7 +254,7 @@ pub fn hint(names: &str, text: &str, limit: usize) -> String {
     let (own, rest): (Vec<&str>, Vec<&str>) = names
         .split(", ")
         .filter(|n| !n.is_empty())
-        .partition(|n| text.contains(n));
+        .partition(|n| crate::speech::pronounce::holds(text, n));
     let mut out = String::new();
     for n in own.into_iter().chain(rest) {
         if !out.is_empty() && out.len() + 2 + n.len() > limit {
@@ -242,7 +302,7 @@ mod tests {
     #[test]
     fn a_long_sentence_is_cut_after_the_comma_near_its_middle() {
         let long = format!("{} stop, {}", "word ".repeat(9).trim(), "word ".repeat(15).trim()); // 125
-        let p = pieces(&long, 100, &chars);
+        let p = piece_texts(&long, 100, &chars);
         assert_eq!(p[0], format!("{} stop,", "word ".repeat(9).trim()), "{p:?}");
         assert_eq!(p.len(), 2);
     }
@@ -253,6 +313,27 @@ mod tests {
         let c = chunks(&[ch("1", &[&long, "Next."])], &chars, Language::English);
         let cut: Vec<bool> = c.iter().map(|c| c.cut).collect();
         assert_eq!(cut, [false, true, false, false], "{c:?}");
+    }
+
+    fn piece_texts(s: &str, limit: usize, len: &dyn Fn(&str) -> usize) -> Vec<String> {
+        let got = pieces(s, limit, len);
+        assert!(got.iter().all(|(p, l)| *l == len(p)), "a piece's length is its own");
+        got.into_iter().map(|(p, _)| p).collect()
+    }
+
+    #[test]
+    fn the_sum_cuts_as_counting_each_joined_text_does(){
+        // a length unlike a sum: each text counted costs 3 more, as a text's ends do in phonemes
+        let len = |t: &str| t.chars().count() + 3;
+        let para = "Word word word word word word word. ".repeat(60);
+        let book = [ch("1", &[para.trim(), "Hi.", "Next one.", "Another."]), ch("2", &[])];
+        assert_eq!(chunks(&book, &len, Language::English), chunks_counted(&book, &len, Language::English));
+    }
+
+    #[test]
+    fn a_name_inside_a_word_is_not_the_chunks_own(){
+        assert_eq!(hint("Tal, Ux", "Luxury and Ux.", 200), "Ux, Tal");
+        assert_eq!(hint("Tal, Ux", "Luxury.", 200), "Tal, Ux");
     }
 
     fn ch(title: &str, paras: &[&str]) -> Chapter {
@@ -288,21 +369,21 @@ mod tests {
     #[test]
     fn a_long_sentence_is_cut_after_commas_then_between_words() {
         let long = format!("{}, {}", "a".repeat(200), "b ".repeat(60).trim());
-        let p = pieces(&long, 280, &chars);
+        let p = piece_texts(&long, 280, &chars);
         assert!(p[0] == format!("{},", "a".repeat(200)) && p[1].starts_with("b b"));
         assert_eq!(p.concat().len() + 1, long.len());
         assert!(p.iter().all(|x| x.chars().count() <= 280) && p.len() == 2);
     }
 
     #[test]
-    fn a_long_sentence_is_cut_into_even_pieces() {
+    fn a_long_sentence_is_cut_into_even_piece_texts() {
         // not a full piece and a tail of two words ("of Wonderland are known."): about equal pieces
         let long = "word ".repeat(70).trim().to_string(); // 349 characters
-        let p = pieces(&long, 280, &chars);
+        let p = piece_texts(&long, 280, &chars);
         assert_eq!(p.len(), 2);
         assert!(p.iter().all(|x| (150..=200).contains(&x.len())), "{p:?}");
         // the even length not on a word's end: still two pieces, no lone word (review)
-        let p = pieces("word ".repeat(69).trim(), 280, &chars);
+        let p = piece_texts("word ".repeat(69).trim(), 280, &chars);
         assert_eq!(p.len(), 2, "{p:?}");
     }
 
@@ -359,14 +440,6 @@ mod tests {
     }
 
     /// A chunk of this text, no pause.
-    fn plain(text: &str) -> Chunk {
-        Chunk {
-            chapter: 0,
-            text: text.into(),
-            pause: 0.0,
-            cut: false,
-        }
-    }
 
     #[test]
     fn demo_picks_take_a_minute_at_start_middle_and_end() {

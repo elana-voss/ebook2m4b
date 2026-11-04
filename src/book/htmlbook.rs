@@ -33,16 +33,58 @@ fn page_name(i: usize) -> String {
     format!("part{i:04}.html")
 }
 
-/// The book of one HTML document (the head of this file).
-pub fn book(html: &str, titles: Vec<String>, creators: Vec<String>) -> Result<Book> {
-    let toks = tokens(html.as_bytes());
-    let targets: HashSet<&str> = toks
-        .iter()
+/// The ids links in the document point to.
+fn link_targets(toks: &[(usize, Tok)]) -> HashSet<&str> {
+    toks.iter()
         .filter_map(|(_, t)| match t {
             Tok::Start(_, a, _) => attr(a, "href")?.strip_prefix('#'),
             _ => None,
         })
-        .collect();
+        .collect()
+}
+
+/// A heading closed: into the contents, joined to the last title when no text came between.
+fn add_heading(toc: &mut Vec<(String, String)>, after_text: &mut bool, id: String, text: &str) {
+    let title = unescape(text)
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    match toc.last_mut() {
+        Some((last, _)) if !*after_text && !title.is_empty() => {
+            *last = join_title(last, &title);
+        }
+        _ if !title.is_empty() => {
+            toc.push((title, id));
+            *after_text = false;
+        }
+        _ => {}
+    }
+}
+
+/// The pages as the spine, each link naming the page its target landed on.
+fn spine_of(pages: &[String], at: &HashMap<String, usize>) -> Result<Vec<Page>> {
+    let link = crate::book::re(r##"href="#([^"]*)""##);
+    pages
+        .iter()
+        .enumerate()
+        .map(|(i, p)| {
+            let p = link.replace_all(p, |c: &regex::Captures| match at.get(&c[1]) {
+                Some(&n) => format!("href=\"{}#{}\"", page_name(n), &c[1]),
+                None => c[0].to_string(),
+            });
+            Ok(Page {
+                name: page_name(i),
+                body: body(&p)?,
+                is_doc: true,
+            })
+        })
+        .collect()
+}
+
+/// The book of one HTML document (the head of this file).
+pub fn book(html: &str, titles: Vec<String>, creators: Vec<String>) -> Result<Book> {
+    let toks = tokens(html.as_bytes());
+    let targets = link_targets(&toks);
     let mut w = Xhtml::default();
     let mut pages = Vec::new();
     let mut at: HashMap<String, usize> = HashMap::new();
@@ -110,42 +152,14 @@ pub fn book(html: &str, titles: Vec<String>, creators: Vec<String>) -> Result<Bo
                 if head.as_ref().is_some_and(|h| h.0 == *n)
                     && let Some((_, id, text)) = head.take()
                 {
-                    let title = unescape(&text)
-                        .split_whitespace()
-                        .collect::<Vec<_>>()
-                        .join(" ");
-                    match toc.last_mut() {
-                        Some((last, _)) if !after_text && !title.is_empty() => {
-                            *last = join_title(last, &title);
-                        }
-                        _ if !title.is_empty() => {
-                            toc.push((title, id));
-                            after_text = false;
-                        }
-                        _ => {}
-                    }
+                    add_heading(&mut toc, &mut after_text, id, &text);
                 }
                 w.end(n);
             }
         }
     }
     pages.push(w.finish());
-    let link = crate::book::re(r##"href="#([^"]*)""##);
-    let spine = pages
-        .iter()
-        .enumerate()
-        .map(|(i, p)| {
-            let p = link.replace_all(p, |c: &regex::Captures| match at.get(&c[1]) {
-                Some(&n) => format!("href=\"{}#{}\"", page_name(n), &c[1]),
-                None => c[0].to_string(),
-            });
-            Ok(Page {
-                name: page_name(i),
-                body: body(&p)?,
-                is_doc: true,
-            })
-        })
-        .collect::<Result<Vec<_>>>()?;
+    let spine = spine_of(&pages, &at)?;
     let toc = toc
         .into_iter()
         .map(|(t, id)| (t, format!("{}#{id}", page_name(at[&id]))))

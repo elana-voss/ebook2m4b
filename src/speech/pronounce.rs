@@ -6,13 +6,14 @@
 //! chunk's limit (chunks.rs, by length()), so a chunk's phonemes are the whole chunk's.
 //! Traps: espeak-ng finds its data by PIPER_ESPEAKNG_DATA_DIRECTORY, which new() sets, so it is made
 //! before other threads start; eSpeak is initialised once per process, so its folder cannot change.
+//! Threads may share a Pronounce (chunks.rs, sounds.rs): the fork's own lock serialises eSpeak.
 use anyhow::{Context, Result, bail};
 use misaki_rs::fallback::{FallbackError, espeak_g2p};
 use misaki_rs::{EspeakFallback, Fallback, G2P, Language};
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, RwLock};
 
 /// The version of the fork's word rules (stems, variants), raised with each change to them: a book's
 /// work_id holds it, so a change speaks the books again.
@@ -38,7 +39,7 @@ pub struct Pronounce {
     g2p: Option<G2P>,
     espeak: Arc<EspeakFallback>,
     /// word: the phonemes it is said with instead of misaki's (sounds.rs's respellings)
-    said: Mutex<BTreeMap<String, String>>,
+    said: RwLock<BTreeMap<String, String>>,
 }
 
 impl Pronounce {
@@ -59,7 +60,7 @@ impl Pronounce {
         Ok(Self {
             g2p: Some(g2p),
             espeak,
-            said: Mutex::new(BTreeMap::new()),
+            said: RwLock::new(BTreeMap::new()),
         })
     }
 
@@ -68,7 +69,7 @@ impl Pronounce {
         Self {
             g2p: None,
             espeak: self.espeak.clone(),
-            said: Mutex::new(BTreeMap::new()),
+            said: RwLock::new(BTreeMap::new()),
         }
     }
 
@@ -94,7 +95,7 @@ impl Pronounce {
 
     fn mark(&self, text: &str) -> String {
         let mut text = text.to_string();
-        for (word, ps) in self.said.lock().expect("no thread panics holding it").iter() {
+        for (word, ps) in self.said.read().expect("no thread panics holding it").iter() {
             text = marked(&text, word, ps);
         }
         text
@@ -138,7 +139,7 @@ impl Pronounce {
 
     /// `word` said with `phonemes` from now on (none: misaki's again).
     pub fn say_as(&self, word: &str, phonemes: Option<String>) {
-        let mut said = self.said.lock().expect("no thread panics holding it");
+        let mut said = self.said.write().expect("no thread panics holding it");
         match phonemes {
             Some(ps) => said.insert(word.to_string(), ps),
             None => said.remove(word),

@@ -143,11 +143,14 @@ fn misspelt(w: &str, count: &Count, language: Language) -> bool {
 /// The book's own words: unknown to English, used three times or more ("barl", "vornsman"), and not a
 /// recurring misprint.
 pub fn invented(chs: &[Chapter], language: Language) -> HashSet<String> {
-    let count = Count::of(chs, language);
+    invented_of(&Count::of(chs, language), language)
+}
+
+fn invented_of(count: &Count, language: Language) -> HashSet<String> {
     count
         .order
         .iter()
-        .filter(|w| count.get(w) >= 3 && !known_in(w, language) && !misspelt(w, &count, language))
+        .filter(|w| count.get(w) >= 3 && !known_in(w, language) && !misspelt(w, count, language))
         .cloned()
         .collect()
 }
@@ -156,7 +159,7 @@ pub fn invented(chs: &[Chapter], language: Language) -> HashSet<String> {
 /// (chunks::book_words does for English).
 pub fn names(chs: &[Chapter], language: Language, n: usize) -> String {
     let count = Count::of(chs, language);
-    let mine = invented(chs, language);
+    let mine = invented_of(&count, language);
     let mut words: Vec<&String> = count.order.iter().filter(|w| mine.contains(*w)).collect();
     words.sort_by_key(|w| std::cmp::Reverse(count.get(w))); // stable: ties in order of first use
     words.iter().take(n).map(|w| w.as_str()).collect::<Vec<_>>().join(", ")
@@ -255,25 +258,27 @@ pub fn mend(
     fix.sort();
     notes.extend(fix.iter().map(|(w, f, why)| format!("{w} -> {f} ({why})")));
     if !fix.is_empty() {
-        let map: HashMap<&str, &str> = fix
-            .iter()
-            .map(|(w, f, _)| (w.as_str(), f.as_str()))
-            .collect();
-        for p in chs.iter_mut().flat_map(|ch| ch.paragraphs.iter_mut()) {
-            let mut out = String::with_capacity(p.len());
-            let mut at = 0;
-            for (a, b) in words(p, language) {
-                if let Some(f) = map.get(&p[a..b]) {
-                    out.push_str(&p[at..a]);
-                    out.push_str(f);
-                    at = b;
-                }
-            }
-            out.push_str(&p[at..]);
-            *p = out;
-        }
+        let map = fix.iter().map(|(w, f, _)| (w.as_str(), f.as_str())).collect();
+        put_right(&mut chs, &map, language);
     }
     Ok(chs)
+}
+
+/// Each word of the chapters that `map` holds replaced by its mending.
+fn put_right(chs: &mut [Chapter], map: &HashMap<&str, &str>, language: Language) {
+    for p in chs.iter_mut().flat_map(|ch| ch.paragraphs.iter_mut()) {
+        let mut out = String::with_capacity(p.len());
+        let mut at = 0;
+        for (a, b) in words(p, language) {
+            if let Some(f) = map.get(&p[a..b]) {
+                out.push_str(&p[at..a]);
+                out.push_str(f);
+                at = b;
+            }
+        }
+        out.push_str(&p[at..]);
+        *p = out;
+    }
 }
 
 /// The 150 characters on each side of the word `w`'s first use in the book.

@@ -89,6 +89,7 @@ fn read_book(
 ) -> Result<(book::Book, Language, Vec<extract::Chapter>)> {
     let name = book_name(src);
     let out = Path::new("work").join(&name);
+    println!("{name}: preparing the text ...");
     let book = book::read(src)?;
     let mut notes = Vec::new();
     let (language, chs) = read_text(&book, series, judge, &mut notes)?;
@@ -200,7 +201,8 @@ impl<'a> Run<'a> {
     /// Chunks are cut before the book's respellings are known, to find its words, and again after (one), so
     /// none passes Kokoro's limit as it is spoken.
     fn unsettled(&self, all: &[extract::Chapter]) -> Vec<chunks::Chunk> {
-        chunks::chunks(all, &|t| self.pronounce.unsettled_length(t), Language::English)
+        let p = &self.pronounce;
+        chunks::chunks(all, &|t| p.unsettled_length(t), Language::English)
     }
 
     /// The book's invented words through the round trip (sounds::settle; Kokoro and Whisper leave the GPU

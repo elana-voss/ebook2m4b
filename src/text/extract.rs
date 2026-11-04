@@ -269,6 +269,7 @@ fn resolve(entries: &[(String, String)], blocks: &[Block]) -> Vec<(usize, String
 /// first line if short).
 fn starts(
     book: &Book,
+    contents: &[(String, String)],
     blocks: &[Block],
     judge: Option<&dyn Judge>,
     notes: &mut Vec<String>,
@@ -276,7 +277,7 @@ fn starts(
 ) -> Result<Vec<(usize, String)>> {
     let mut tries = vec![
         resolve(&book.toc, blocks),
-        resolve(&own_contents(book), blocks),
+        resolve(contents, blocks),
     ];
     if tries.iter().all(|t| t.len() < 3) {
         let mut heads: Vec<(usize, String)> = blocks
@@ -490,11 +491,12 @@ fn unmended(
 ) -> Result<Vec<Chapter>> {
     let key = |t: &str| key(t, language);
     let blocks = all_blocks(book, language);
-    let starts = starts(book, &blocks, judge, notes, language)?;
+    let contents = own_contents(book);
+    let starts = starts(book, &contents, &blocks, judge, notes, language)?;
     let titles: std::collections::HashSet<String> = book
         .toc
         .iter()
-        .chain(own_contents(book).iter())
+        .chain(contents.iter())
         .map(|(t, _)| key(t))
         .chain(starts.iter().map(|(_, t)| key(t)))
         .collect();

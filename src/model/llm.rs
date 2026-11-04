@@ -102,7 +102,7 @@ impl Llm {
         if let Some(dir) = self.cache_file.parent() {
             std::fs::create_dir_all(dir)?;
         }
-        std::fs::write(&self.cache_file, Value::Object(self.cache.clone()).to_string())
+        std::fs::write(&self.cache_file, serde_json::to_string(&self.cache)?)
             .with_context(|| self.cache_file.display().to_string())?;
         Ok(got)
     }

@@ -15,7 +15,7 @@ pub fn hear(state: &mut WhisperState, wav: &[f32], rate: u32, hint: &str, langua
     let mut p = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
     p.set_language(Some(language));
     p.set_temperature_inc(0.0);
-    p.set_n_threads(4);
+    p.set_n_threads(crate::machine::CORES as _);
     p.set_initial_prompt(hint);
     p.set_no_timestamps(true);
     p.set_print_special(false);

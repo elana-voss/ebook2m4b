@@ -94,6 +94,65 @@ fn xml_name(b: &[u8]) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || b"_.:-".contains(c))
 }
 
+/// A start tag's attributes from `j` on, whether it closes itself, and where it ends.
+fn attributes(raw: &[u8], mut j: usize) -> (Vec<(String, String)>, bool, usize) {
+    let n = raw.len();
+    let mut attrs: Vec<(String, String)> = Vec::new();
+    let mut closed = false;
+    loop {
+        while j < n && raw[j].is_ascii_whitespace() {
+            j += 1;
+        }
+        if j >= n {
+            break;
+        }
+        if raw[j] == b'>' {
+            j += 1;
+            break;
+        }
+        if raw[j] == b'/' {
+            closed = true;
+            j += 1;
+            continue;
+        }
+        let ks = j;
+        while j < n && !raw[j].is_ascii_whitespace() && !b"=>/".contains(&raw[j]) {
+            j += 1;
+        }
+        let key = String::from_utf8_lossy(&raw[ks..j]).to_ascii_lowercase();
+        while j < n && raw[j].is_ascii_whitespace() {
+            j += 1;
+        }
+        let mut val = String::new();
+        if j < n && raw[j] == b'=' {
+            j += 1;
+            while j < n && raw[j].is_ascii_whitespace() {
+                j += 1;
+            }
+            if j < n && (raw[j] == b'"' || raw[j] == b'\'') {
+                let q = raw[j];
+                let vs = j + 1;
+                j = vs;
+                while j < n && raw[j] != q {
+                    j += 1;
+                }
+                val = String::from_utf8_lossy(&raw[vs..j]).into_owned();
+                j = (j + 1).min(n);
+            } else {
+                let vs = j;
+                while j < n && !raw[j].is_ascii_whitespace() && raw[j] != b'>' {
+                    j += 1;
+                }
+                val = String::from_utf8_lossy(&raw[vs..j]).into_owned();
+            }
+        }
+        if xml_name(key.as_bytes()) && !key.contains(':') && !attrs.iter().any(|(k, _)| *k == key) {
+            attrs.push((key, val));
+        }
+    }
+    (attrs, closed, j)
+}
+
 /// The tokens of `raw`, each with the offset of its first byte.
 pub fn tokens(raw: &[u8]) -> Vec<(usize, Tok)> {
     let mut out = Vec::new();
@@ -131,62 +190,8 @@ pub fn tokens(raw: &[u8]) -> Vec<(usize, Tok)> {
             continue;
         }
         let name = local(&String::from_utf8_lossy(&raw[ns..j]));
-        let mut attrs = Vec::new();
-        let mut closed = false;
-        loop {
-            while j < n && raw[j].is_ascii_whitespace() {
-                j += 1;
-            }
-            if j >= n {
-                break;
-            }
-            if raw[j] == b'>' {
-                j += 1;
-                break;
-            }
-            if raw[j] == b'/' {
-                closed = true;
-                j += 1;
-                continue;
-            }
-            let ks = j;
-            while j < n && !raw[j].is_ascii_whitespace() && !b"=>/".contains(&raw[j]) {
-                j += 1;
-            }
-            let key = String::from_utf8_lossy(&raw[ks..j]).to_ascii_lowercase();
-            while j < n && raw[j].is_ascii_whitespace() {
-                j += 1;
-            }
-            let mut val = String::new();
-            if j < n && raw[j] == b'=' {
-                j += 1;
-                while j < n && raw[j].is_ascii_whitespace() {
-                    j += 1;
-                }
-                if j < n && (raw[j] == b'"' || raw[j] == b'\'') {
-                    let q = raw[j];
-                    let vs = j + 1;
-                    j = vs;
-                    while j < n && raw[j] != q {
-                        j += 1;
-                    }
-                    val = String::from_utf8_lossy(&raw[vs..j]).into_owned();
-                    j = (j + 1).min(n);
-                } else {
-                    let vs = j;
-                    while j < n && !raw[j].is_ascii_whitespace() && raw[j] != b'>' {
-                        j += 1;
-                    }
-                    val = String::from_utf8_lossy(&raw[vs..j]).into_owned();
-                }
-            }
-            if xml_name(key.as_bytes())
-                && !key.contains(':')
-                && !attrs.iter().any(|(k, _)| *k == key)
-            {
-                attrs.push((key, val));
-            }
-        }
+        let (attrs, closed, after) = attributes(raw, j);
+        j = after;
         out.push((
             s,
             if end {

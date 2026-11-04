@@ -16,9 +16,12 @@
 //! card: 0), the CPU's from the hottest thermal zone: Windows' (tenths of kelvin, by PowerShell), Linux's
 //! /sys/class/thermal/thermal_zone*/temp and its CPU drivers' /sys/class/hwmon/hwmon*/temp*_input
 //! (thousandths of a degree; WSL2 has none: 0).
+//!
+//! in_order(): a job's items on up to CORES threads, the results in the items' order.
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, LazyLock, Mutex};
 use std::time::Duration;
 
@@ -29,6 +32,32 @@ pub enum Os {
 }
 
 pub const THIS: Os = if cfg!(windows) { Os::Windows } else { Os::Linux };
+
+/// The threads a heavy job takes at most: half the physical cores of the machine it is built on.
+pub const CORES: usize = 4;
+
+/// `work` of each item (its index, the item) on up to CORES threads, the results in the items' order;
+/// a panic in one is raised here.
+pub fn in_order<T: Sync, R: Send>(items: &[T], work: impl Fn(usize, &T) -> R + Sync) -> Vec<R> {
+    let next = AtomicUsize::new(0);
+    let mut done: Vec<(usize, R)> = std::thread::scope(|s| {
+        let turn = || {
+            let mut got = Vec::new();
+            loop {
+                let i = next.fetch_add(1, Ordering::Relaxed);
+                let Some(item) = items.get(i) else { return got };
+                got.push((i, work(i, item)));
+            }
+        };
+        let threads: Vec<_> = (0..CORES.min(items.len())).map(|_| s.spawn(turn)).collect();
+        threads
+            .into_iter()
+            .flat_map(|t| t.join().unwrap_or_else(|e| std::panic::resume_unwind(e)))
+            .collect()
+    });
+    done.sort_by_key(|d| d.0);
+    done.into_iter().map(|d| d.1).collect()
+}
 
 /// The home folder: %LOCALAPPDATA%\ebook2m4b on Windows; on Linux $XDG_DATA_HOME/ebook2m4b, else
 /// ~/.local/share/ebook2m4b. `var` reads an environment variable (one set but empty counts as unset).
@@ -231,6 +260,16 @@ pub fn wait_while_hot() {
 
 #[cfg(test)]
 mod tests {
+    use super::in_order;
+
+    #[test]
+    fn in_order_keeps_the_items_order(){
+        let items: Vec<usize> = (0..1000).collect();
+        let got = in_order(&items, |i, x| i + *x);
+        assert_eq!(got, (0..1000).map(|x| 2 * x).collect::<Vec<_>>());
+        assert!(in_order(&[] as &[usize], |_, x| *x).is_empty());
+    }
+
     use super::*;
 
     fn env<'a>(pairs: &'a [(&'a str, &'a str)]) -> impl Fn(&str) -> Option<String> + 'a {
