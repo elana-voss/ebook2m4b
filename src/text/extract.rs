@@ -369,7 +369,8 @@ fn capitals(text: &str) -> String {
 }
 
 /// Joins paragraphs cut by a page, drops contents lines, links and empty ones, keeps one SCENE
-/// between text, reads lines in capitals as words.
+/// between text, reads lines in capitals as words. A line equal to a title goes, unless it ends a sentence
+/// with no title beside it: "Silence." in a chapter titled Silence is text.
 fn tidy(paras: &[String], titles: &std::collections::HashSet<String>, language: Language) -> Vec<String> {
     static LINK: LazyLock<Regex> = LazyLock::new(|| re(r"www\.|https?://"));
     static CUT: LazyLock<Regex> = LazyLock::new(|| re(r"[a-z]-$"));
@@ -377,14 +378,18 @@ fn tidy(paras: &[String], titles: &std::collections::HashSet<String>, language: 
     static CUT_DE: LazyLock<Regex> = LazyLock::new(|| re(r"[a-zäöüß]-$"));
     static ENDS_DE: LazyLock<Regex> = LazyLock::new(|| re(r#"[.!?:;"'’”“«‹)\]—–-]$"#)); // „ » › open a quote
     let (cut, ends) = (of(language, &CUT, &CUT_DE), of(language, &ENDS, &ENDS_DE));
+    let is_title = |p: &String| titles.contains(&key(p.trim(), language));
     let mut joined: Vec<String> = Vec::new();
-    for t in paras {
+    for (i, t) in paras.iter().enumerate() {
         let t = t.trim().to_string();
         let n = len(&t);
         if t.is_empty()
             || LINK.is_match(&t)
             || n < 60 && of(language, &PAGE, &PAGE_DE).is_match(&t)
-            || titles.contains(&key(&t, language))
+            || is_title(&t)
+                && !(t.ends_with(['.', '!', '?'])
+                    && !paras[..i].last().is_some_and(is_title)
+                    && !paras.get(i + 1).is_some_and(is_title))
             || n < 40 && of(language, &NOTICE, &NOTICE_DE).is_match(&t)
         {
             continue;
@@ -675,6 +680,19 @@ mod tests {
         );
         assert_eq!(b[0].0, ["x", "c1"]);
         assert_eq!(b[1].0, ["c1"]); // the anchor seen again after the heading
+    }
+
+    #[test]
+    fn a_title_said_in_the_text_stays_and_a_contents_line_goes() {
+        let p = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let titles: std::collections::HashSet<String> =
+            ["silence", "the road", "caught!", "the chain"].map(String::from).into();
+        let t = tidy(&p(&["He listened.", "Silence.", "It went on."]), &titles, Language::English);
+        assert_eq!(t, ["He listened.", "Silence.", "It went on."]);
+        // no end mark: a title, wherever it stands
+        assert_eq!(tidy(&p(&["He listened.", "Silence", "It went on."]), &titles, Language::English), ["He listened.", "It went on."]);
+        // beside other titles: a contents page, end mark or not
+        assert!(tidy(&p(&["The Road", "Caught!", "The Chain"]), &titles, Language::English).is_empty());
     }
 
     #[test]
