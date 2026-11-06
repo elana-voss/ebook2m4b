@@ -76,6 +76,11 @@ To list the options:
 ./ebook2m4b --help
 ```
 
+## Limits
+
+Ebooks vary widely in how they are built. ebook2m4b is tested on ordinary novels; a book with an unusual
+structure (tables, many footnotes, text scanned from a paper book) may not come out clean.
+
 ## Building from source
 
 You need Rust, the Visual Studio C++ build tools, CMake, Git, Strawberry Perl, LLVM's libclang and the
