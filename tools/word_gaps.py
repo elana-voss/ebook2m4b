@@ -3,6 +3,7 @@
   python tools/word_gaps.py <sentences> --lang en|de --model <model.onnx> --voice <voice.bin>
       [--speed 1] [--split 0.16] [--hear] [--out <table.json>] [--label <name>]
   python tools/word_gaps.py --compare <before.json> <after.json> --limit <frames at speed 1> [--out <table.json>]
+  python tools/word_gaps.py --trace <table.json>... [--out <table.json>]
 
 <sentences>: a text file, one sentence a line, or a JSON list of [before, after, sentence] whose pause sits
 between "before" and "after" (those pairs are counted as tagged). The product's phonemes come from the
@@ -22,6 +23,10 @@ its word match is the share of the sentence's words heard in order (difflib on l
 Counts every gap's last sound + gap over Round(limit/speed) frames in each, the pairs the patch should have
 left alone that changed, every other token whose frames changed (punctuation, pauses, sounds), the wrong
 gaps and the Whisper match in each. Prints a few lines; the per-pair table goes to --out.
+
+--trace (24b): where the silence of each gap at or over --split sits. Every gap of a table carries its tokens from the word's
+last sound to the first sound after the space, each as [symbol, frames, seconds of the silent run inside it],
+and "run": the run's start and end and the window's end, in seconds from the last sound's start.
 """
 import argparse, difflib, io, json, os, re, subprocess, sys, tempfile, time, urllib.request, uuid, wave
 
@@ -81,13 +86,15 @@ def session(model):
 
 
 def silence(audio, lo, hi):
-    """The longest run of samples whose 10 ms RMS is under -45 dBFS in audio[lo:hi], in seconds."""
+    """The longest run of samples whose 10 ms RMS is under -45 dBFS in audio[lo:hi]: (seconds, first, end)."""
     rms = np.sqrt(np.convolve(audio.astype(np.float64) ** 2, np.ones(WIN) / WIN, "same"))
     best = run = 0
-    for q in rms[lo:hi] < QUIET:
+    at = lo
+    for k, q in enumerate(rms[lo:hi] < QUIET):
         run = run + 1 if q else 0
-        best = max(best, run)
-    return best / RATE
+        if run > best:
+            best, at = run, lo + k + 1 - run
+    return best / RATE, at, at + best
 
 
 class Ear:
@@ -155,7 +162,8 @@ def measure(args):
     for n, (line, p, pause) in enumerate(zip(lines, ps, pauses)):
         if len(p) > 510:
             sys.exit(f"sentence {n + 1} has {len(p)} phonemes, over Kokoro's 510: shorten it")
-        ids = [0] + [vocab[c] for c in p if c in vocab] + [0]
+        chars = ["_"] + [c for c in p if c in vocab] + ["_"]
+        ids = [vocab[c] if c != "_" else 0 for c in chars]
         arrows_seen += sum(i in ARROWS for i in ids)
         wav, dur = sess.run(["waveform", frames_name], {
             "input_ids": np.array([ids], dtype=np.int64),
@@ -179,12 +187,18 @@ def measure(args):
             if ids[i - 1] < FIRST_SOUND or ids[i + 1] < FIRST_SOUND:
                 continue
             end = i + 3 if ids[i + 1] in stress else i + 2
-            sil = silence(audio, int(start[i - 1]), int(start[min(end, len(ids))]))
+            end = min(end, len(ids))
+            sil, lo, hi = silence(audio, int(start[i - 1]), int(start[end]))
+            # where the silence sits: each token's symbol, frames and seconds of the run inside its frames
+            trace = [[chars[k], dur[k], round(max(0, min(hi, start[k + 1]) - max(lo, start[k])) / RATE, 4)]
+                     for k in range(i - 1, end)]
             rows.append({"sentence": n + 1, "words": words[word - 1] + " " + words[word],
                          "last": dur[i - 1], "gap": dur[i], "frames": dur[i - 1] + dur[i],
                          "silence": round(sil, 4), "wrong": sil >= args.split,
                          "arrow": ids[i - 1] in ARROWS or ids[i + 1] in ARROWS,
-                         "tagged": tag == word})
+                         "tagged": tag == word, "trace": trace,
+                         "run": [round((lo - start[i - 1]) / RATE, 4), round((hi - start[i - 1]) / RATE, 4),
+                                 round((start[end] - start[i - 1]) / RATE, 4)]})
         if pause and tag is None:
             print(f"sentence {n + 1}: its tagged pause could not be placed", file=sys.stderr)
     if ear:
@@ -255,6 +269,28 @@ def compare(args):
     json.dump(rows, open(args.out, "w", encoding="utf-8"), indent=0)
 
 
+def trace(args):
+    """Where the silence of each gap at or over --split sits: per table one line, the seconds of the run in the
+    word's last sound, the space and the sounds after it (a stress mark and the first sound); each gap to --out."""
+    rows = []
+    for f in args.trace:
+        t = json.load(open(f, encoding="utf-8"))
+        bad = [g for g in t["gaps"] if g["silence"] >= args.split]
+        part = [sum(g["trace"][0][2] for g in bad), sum(g["trace"][1][2] for g in bad),
+                sum(x[2] for g in bad for x in g["trace"][2:])]
+        whole = max(sum(part), 1e-9)
+        if not bad:
+            print(f"{os.path.basename(f)}: no gap at or over {args.split} s")
+            continue
+        print(f"{os.path.basename(f)}: at or over {args.split} s {len(bad)} (frames {min(g['frames'] for g in bad)}-"
+              f"{max(g['frames'] for g in bad)}), silence {whole:.2f} s; in the last sound {part[0] / whole:.0%}, "
+              f"the space {part[1] / whole:.0%}, after it {part[2] / whole:.0%}; gaps mostly after the space "
+              f"{sum(sum(x[2] for x in g['trace'][2:]) > g['silence'] / 2 for g in bad)}")
+        rows += [dict(table=os.path.basename(f), **{k: g[k] for k in ("sentence", "words", "silence", "trace")})
+                 for g in bad]
+    json.dump(rows, open(args.out, "w", encoding="utf-8"), ensure_ascii=False, indent=0)
+
+
 def main():
     a = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     a.add_argument("sentences", nargs="?")
@@ -268,8 +304,11 @@ def main():
     a.add_argument("--hear", action="store_true", help="Whisper's word match of each sentence")
     a.add_argument("--compare", nargs=2, metavar=("BEFORE", "AFTER"))
     a.add_argument("--limit", type=int, help="with --compare: the limit at speed 1, in frames")
+    a.add_argument("--trace", nargs="+", metavar="TABLE", help="where the wrong gaps' silence sits")
     args = a.parse_args()
-    if args.compare:
+    if args.trace:
+        trace(args)
+    elif args.compare:
         if args.limit is None:
             a.error("--compare needs --limit")
         compare(args)
