@@ -2,9 +2,10 @@
 //! folder (machine::home: %LOCALAPPDATA%\ebook2m4b, on Linux ~/.local/share/ebook2m4b), never system-wide;
 //! home/setup.json names where each piece is, so a later start fetches nothing.
 //! Each download is checked by its pinned SHA-256 before it is unpacked.
-//! Kokoro's model is then patched for the GPU once per patch version (onnx.rs), as "kokoro-gpu" ("kokoro-gpu-dml" on DirectML).
+//! Kokoro's model is then patched once per patch version (onnx.rs: for the GPU, and the silence between words
+//! limited), as "kokoro-gpu" ("kokoro-gpu-dml" on DirectML); Kerstin's likewise as "kerstin-gpu[-dml]".
 //! Each card's ONNX Runtime has its own folder (ort, ort-dml), so a card changed later fetches its own.
-//! Kerstin, the German voice, and her model are fetched the first time a German book is read (Tools::kerstin).
+//! Kerstin, the German voice, and her model are fetched (and patched) the first time a German book is read (Tools::kerstin).
 //! Libraries nothing loads (TensorRT's provider, cuFFTW, NVBLAS) are not unpacked.
 //! Linux: links in the archives are made again, every file taken may be run, and the libraries' folders
 //! are put on LD_LIBRARY_PATH for the programs started later (llama-server, whisper-server).
@@ -17,6 +18,7 @@ pub mod process;
 use crate::setup::downloads::{Item, Take, german, items};
 use crate::machine::{Card, Os, THIS};
 use crate::setup::archive::Kind;
+use crate::speech::onnx::Model;
 use anyhow::{Context, Result, bail};
 use std::cell::OnceCell;
 use std::collections::BTreeMap;
@@ -24,23 +26,44 @@ use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
-/// Kokoro's model patched for this card: its key in setup.json and its path in home (DirectML's has the
+/// A speech model patched for this card: its key in setup.json and its path in home (DirectML's has the
 /// ConvTranspose pads changed too, so a card changed later gets its own). The patch's version is in the name,
 /// so a model made by an older patch is made again.
-pub fn gpu_model(card: Card) -> (&'static str, String) {
-    let name = match card {
-        Card::Nvidia => "model-gpu",
-        Card::Other => "model-gpu-dml",
+pub fn patched_model(model: Model, card: Card) -> (&'static str, String) {
+    let (key, folder) = match (model, card) {
+        (Model::Kokoro, Card::Nvidia) => ("kokoro-gpu", "kokoro"),
+        (Model::Kokoro, Card::Other) => ("kokoro-gpu-dml", "kokoro"),
+        (Model::Kerstin, Card::Nvidia) => ("kerstin-gpu", "kerstin"),
+        (Model::Kerstin, Card::Other) => ("kerstin-gpu-dml", "kerstin"),
     };
-    let key = if card == Card::Nvidia {
-        "kokoro-gpu"
-    } else {
-        "kokoro-gpu-dml"
-    };
+    let name = if card == Card::Nvidia { "model-gpu" } else { "model-gpu-dml" };
     (
         key,
-        format!("models/kokoro/{name}-v{}.onnx", crate::speech::onnx::VERSION),
+        format!("models/{folder}/{name}-v{}.onnx", crate::speech::onnx::VERSION),
     )
+}
+
+/// Makes `model`'s patched copy for `card` from the downloaded one (`source`, its key) unless this patch
+/// made it already; an older patch's file is removed.
+fn make_patched(found: &mut BTreeMap<String, PathBuf>, home: &Path, state: &Path, model: Model, card: Card) -> Result<()> {
+    let (key, rel) = patched_model(model, card);
+    let dst = home.join(rel);
+    if patched_is_current(found, key, &dst) {
+        return Ok(());
+    }
+    let source = if model == Model::Kokoro { "kokoro" } else { "kerstin-model" };
+    let src = found.get(source).with_context(|| format!("{source} is not set up"))?;
+    println!("{model:?}'s model is made ready (once)");
+    crate::speech::onnx::patch(src, &dst, model, card == Card::Other)?;
+    if let Some(old) = found.get(key).filter(|p| **p != dst) {
+        let _ = fs::remove_file(old); // an older patch's file; one already gone is fine
+    }
+    found.insert(key.into(), dst);
+    if let Some(old) = found.remove("kerstin-model-dml") {
+        let _ = fs::remove_file(old); // Kerstin's model with only DirectML's pads, before version 3; gone is fine
+    }
+    fs::write(state, serde_json::to_string_pretty(&found)?)?;
+    Ok(())
 }
 
 /// Whether setup.json's patched model is there and made by this patch.
@@ -90,24 +113,21 @@ impl Tools {
     pub fn kokoro(&self, voice: &str) -> Result<KokoroFiles<'_>> {
         Ok(KokoroFiles {
             ort: self.piece("onnxruntime")?,
-            model: self.piece(gpu_model(self.card).0)?,
+            model: self.piece(patched_model(Model::Kokoro, self.card).0)?,
             tokenizer: self.piece("kokoro-tokenizer")?,
             voice: self.piece(&format!("voice-{voice}"))?,
             cuda: self.card == Card::Nvidia,
         })
     }
 
-    /// Kokoro's files for a German book, fetched the first time one is read: Kerstin's model, as it comes
-    /// (it has no STFT for the GPU patch to change, and runs without it); on another card with the pads
-    /// DirectML takes, made once beside it.
+    /// Kokoro's files for a German book, fetched the first time one is read: Kerstin's model patched once
+    /// beside it (the silence between words limited; on another card also the pads DirectML takes).
     pub fn kerstin(&self) -> Result<KokoroFiles<'_>> {
         if self.german.get().is_none() {
             let mut found = self.found.clone();
             let state = self.home.join(STATE);
             fetch(german(), &mut found, &self.home, &state)?;
-            if self.card == Card::Other {
-                make_kerstin_dml(&mut found, &self.home, &state)?;
-            }
+            make_patched(&mut found, &self.home, &state, Model::Kerstin, self.card)?;
             // set just above if empty; a run is one thread, nothing else sets it
             let _ = self.german.set(found);
         }
@@ -121,20 +141,6 @@ impl Tools {
     }
 }
 
-/// Kerstin's model with the pads DirectML takes, made once beside it.
-fn make_kerstin_dml(found: &mut BTreeMap<String, PathBuf>, home: &Path, state: &Path) -> Result<()> {
-    let dst = home.join(KERSTIN_DML);
-    if found.get("kerstin-model-dml").is_some_and(|p| *p == dst && p.exists()) {
-        return Ok(());
-    }
-    let src = found.get("kerstin-model").context("kerstin-model is not set up")?;
-    println!("Kerstin's model is made ready for this card");
-    crate::speech::onnx::pads_only(src, &dst)?;
-    found.insert("kerstin-model-dml".into(), dst);
-    fs::write(state, serde_json::to_string_pretty(&found)?)?;
-    Ok(())
-}
-
 fn kerstin_files<'a>(german: &'a BTreeMap<String, PathBuf>, ort: &'a Path, card: Card) -> Result<KokoroFiles<'a>> {
     let piece = |key: &str| {
         german
@@ -144,7 +150,7 @@ fn kerstin_files<'a>(german: &'a BTreeMap<String, PathBuf>, ort: &'a Path, card:
     };
     Ok(KokoroFiles {
         ort,
-        model: piece(if card == Card::Nvidia { "kerstin-model" } else { "kerstin-model-dml" })?,
+        model: piece(patched_model(Model::Kerstin, card).0)?,
         tokenizer: piece("kokoro-tokenizer")?,
         voice: piece("voice-df_kerstin")?,
         cuda: card == Card::Nvidia,
@@ -154,9 +160,6 @@ fn kerstin_files<'a>(german: &'a BTreeMap<String, PathBuf>, ort: &'a Path, card:
 pub fn home() -> Result<PathBuf> {
     crate::machine::home(crate::machine::THIS, |k| std::env::var(k).ok())
 }
-
-/// Kerstin's model for DirectML, under home.
-const KERSTIN_DML: &str = "models/kerstin/model-dml.onnx";
 
 /// What setup.json holds, under home.
 const STATE: &str = "setup.json";
@@ -202,20 +205,7 @@ pub fn ensure(card: Card, voice: &str) -> Result<Tools> {
         Err(_) => BTreeMap::new(), // first start
     };
     fetch(items(THIS, card, voice)?, &mut found, &home, &state)?;
-    let (key, rel) = gpu_model(card);
-    let dst = home.join(rel);
-    if !patched_is_current(&found, key, &dst) {
-        let src = found
-            .get("kokoro")
-            .context("Kokoro's model is not set up")?;
-        println!("Kokoro's model is made ready for the GPU");
-        crate::speech::onnx::patch(src, &dst, card == Card::Other)?;
-        if let Some(old) = found.get(key).filter(|p| **p != dst) {
-            let _ = fs::remove_file(old); // an older patch's file; one already gone is fine
-        }
-        found.insert(key.into(), dst);
-        fs::write(&state, serde_json::to_string_pretty(&found)?)?;
-    }
+    make_patched(&mut found, &home, &state, Model::Kokoro, card)?;
     #[cfg(unix)]
     {
         let old = std::env::var_os("LD_LIBRARY_PATH").unwrap_or_default();
@@ -419,15 +409,17 @@ mod tests {
 
     #[test]
     fn each_card_has_its_own_patched_model() {
-        let (nk, np) = gpu_model(Card::Nvidia);
-        let (ok, op) = gpu_model(Card::Other);
-        assert!(nk != ok && np != op);
+        let all = [Model::Kokoro, Model::Kerstin].map(|m| [Card::Nvidia, Card::Other].map(|c| patched_model(m, c)));
+        let all: Vec<_> = all.iter().flatten().collect();
+        for (i, a) in all.iter().enumerate() {
+            assert!(all[i + 1..].iter().all(|b| a.0 != b.0 && a.1 != b.1), "{all:?}");
+        }
     }
 
     #[test]
     fn a_model_patched_by_an_older_patch_is_made_again() {
         let dir = std::env::temp_dir().join(format!("ebook2m4b-stale-{}", std::process::id()));
-        let (key, rel) = gpu_model(Card::Nvidia);
+        let (key, rel) = patched_model(Model::Kokoro, Card::Nvidia);
         let old = dir.join("models/kokoro/model-gpu.onnx");
         let now = dir.join(&rel);
         for p in [&old, &now] {
@@ -525,7 +517,7 @@ mod tests {
 
     #[test]
     fn kerstin_has_her_own_model_and_voice_and_the_shared_tokenizer() {
-        let mut found: BTreeMap<String, PathBuf> = ["kerstin-model", "kokoro-tokenizer"]
+        let mut found: BTreeMap<String, PathBuf> = ["kerstin-model", "kerstin-gpu", "kokoro-tokenizer"]
             .map(|k| (k.to_string(), PathBuf::from(format!("/{k}"))))
             .into_iter()
             .collect();
@@ -533,7 +525,7 @@ mod tests {
         assert!(kerstin_files(&found, ort, Card::Nvidia).is_err()); // no voice yet
         found.insert("voice-df_kerstin".into(), "/voice".into());
         let k = kerstin_files(&found, ort, Card::Nvidia).unwrap();
-        assert_eq!(k.model, Path::new("/kerstin-model"));
+        assert_eq!(k.model, Path::new("/kerstin-gpu")); // patched: the silence between words limited
         assert_eq!(k.tokenizer, Path::new("/kokoro-tokenizer"));
         assert_eq!(k.voice, Path::new("/voice"));
         assert!(k.cuda);
@@ -541,12 +533,12 @@ mod tests {
 
     #[test]
     fn kerstin_on_another_card_has_the_model_with_directmls_pads() {
-        let found: BTreeMap<String, PathBuf> = ["kerstin-model", "kerstin-model-dml", "kokoro-tokenizer", "voice-df_kerstin"]
+        let found: BTreeMap<String, PathBuf> = ["kerstin-model", "kerstin-gpu", "kerstin-gpu-dml", "kokoro-tokenizer", "voice-df_kerstin"]
             .map(|k| (k.to_string(), PathBuf::from(format!("/{k}"))))
             .into_iter()
             .collect();
         let k = kerstin_files(&found, Path::new("/ort"), Card::Other).unwrap();
-        assert_eq!(k.model, Path::new("/kerstin-model-dml"));
+        assert_eq!(k.model, Path::new("/kerstin-gpu-dml"));
         assert!(!k.cuda);
     }
 

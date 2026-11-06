@@ -1,15 +1,19 @@
-//! Kokoro's ONNX export patched for the GPU
-//! (setup runs it once after the download; the result is
-//! models/kokoro/model-gpu.onnx in the home folder):
+//! Kokoro's ONNX export patched for the GPU, and both speech models' silence between words limited
+//! (setup runs it once after the download; the result is models/<kokoro|kerstin>/model-gpu[-dml]-v<VERSION>.onnx
+//! in the home folder):
 //! - the generator's STFT (no GPU kernel in ONNX Runtime, so it ran on the CPU) becomes a Conv whose filters are
 //!   the window times cos and -sin of each frequency; the DC and Nyquist bins' imaginary parts +0 exactly;
 //! - the export's atan2 takes an imaginary +0 with a negative real part as pi, as torch does (Greater becomes
 //!   GreaterOrEqual), and its 0/0 in a silent frame 0, not NaN (which made a whole chunk NaN; Rust only);
 //! - the inverse STFT's NonZero/ScatterND division by the window sum becomes a Where over the same mask;
 //! - on another card (DirectML) also: the three upsampling
-//!   ConvTranspose nodes get pads 1/0 and no output_padding (same output, which DirectML otherwise refuses).
+//!   ConvTranspose nodes get pads 1/0 and no output_padding (same output, which DirectML otherwise refuses);
+//! - both models (Kokoro's and Kerstin's): after the Clip that times each token, a word's last sound and the
+//!   space after it, with no punctuation between the two words, together get at most Round(L/speed) frames
+//!   (Kokoro 8, Kerstin 10 at speed 1: the top of the normal range measured; above it the voice made silences of
+//!   0.2-0.44 s mid-sentence); every other token as it was (limit_word_gaps).
 //!
-//! Kerstin's model has no STFT: it runs as it comes on CUDA, and with only the pads' change on DirectML (pads_only).
+//! Kerstin's model has no STFT: it gets the limit, and the pads' change on DirectML.
 //!
 //! Nodes and initializers no graph output needs any more are dropped.
 //! The protobuf is read and written by a small reader here (no ONNX library): a message is its fields in order,
@@ -19,10 +23,13 @@ use anyhow::{Context, Result, bail};
 use std::path::Path;
 
 /// The patch's version, in the patched model's file name: raised whenever the patch changes what it writes.
-pub const VERSION: u32 = 2;
+pub const VERSION: u32 = 3;
 const G: &str = "/decoder/decoder/generator/";
 const FLOAT: u64 = 1;
 const INT64: u64 = 7;
+/// Kokoro's token ids: a space, and the first sound (below it the padding and punctuation).
+const SPACE: i64 = 16;
+const FIRST_SOUND: i64 = 17;
 
 #[derive(Clone, Debug, PartialEq)]
 enum V {
@@ -247,6 +254,21 @@ fn stft_filters(window: &[f64]) -> Vec<f32> {
     out
 }
 
+/// New nodes, each output named by its op and a count.
+struct Nodes {
+    new: Vec<Msg>,
+    made: usize,
+}
+
+impl Nodes {
+    fn op(&mut self, op: &str, inputs: &[&str], attrs: Vec<Msg>) -> String {
+        self.made += 1;
+        let out = format!("/word_gap/{op}_{}", self.made);
+        self.new.push(node(op, inputs, &[&out], attrs));
+        out
+    }
+}
+
 struct Graph {
     nodes: Vec<Msg>,
     inits: Vec<Msg>,
@@ -464,6 +486,91 @@ impl Graph {
         Ok(fixed)
     }
 
+    /// Limits the silence between two words with no punctuation between them: after the Clip that times each
+    /// token, where token i is a space and both neighbours are sounds or marks (id 17 or more), the frames of
+    /// tokens i-1 and i together are at most Round(limit / speed), token i-1 shortened first, each at least 1.
+    /// The new nodes write the Clip's old output, so what read it reads the limited frames.
+    fn limit_word_gaps(&mut self, clip: &str, limit: i64) -> Result<()> {
+        let inputs: Vec<String> = self
+            .rest
+            .iter()
+            .filter_map(|(n, v)| match v {
+                V::Bytes(b) if *n == 11 => parse(b).ok().map(|i| str1(&i, 1)),
+                _ => None,
+            })
+            .collect();
+        if !["input_ids", "speed"].iter().all(|i| inputs.iter().any(|x| x == i)) {
+            bail!("the model does not take input_ids and speed");
+        }
+        let at = self.at(clip)?;
+        let frames = strs(&self.nodes[at], 2)
+            .into_iter()
+            .next()
+            .context("the Clip has no output")?;
+        let p = |x: &str| format!("/word_gap/{x}");
+        let raw = p("unlimited");
+        for (n, v) in self.nodes[at].iter_mut() {
+            if *n == 2 {
+                *v = s(&raw);
+            }
+        }
+        self.inits.extend([
+            tensor_i64(&p("space"), &[SPACE]),
+            tensor_i64(&p("sound"), &[FIRST_SOUND]),
+            tensor_f32(&p("limit"), &[1], &[limit as f32]),
+            tensor_f32(&p("0"), &[1], &[0.0]),
+            tensor_f32(&p("1"), &[1], &[1.0]),
+            tensor_f32(&p("2"), &[1], &[2.0]),
+            tensor_i64(&p("i0"), &[0]),
+            tensor_i64(&p("i1"), &[1]),
+            tensor_i64(&p("i-1"), &[-1]),
+            tensor_i64(&p("end"), &[i64::MAX]),
+        ]);
+        let mut b = Nodes { new: vec![], made: 0 };
+        let f = |b: &mut Nodes, x: &str| b.op("Cast", &[x], vec![int("to", FLOAT as i64)]);
+        let space = b.op("Equal", &["input_ids", &p("space")], vec![]);
+        let space = f(&mut b, &space);
+        let sound = b.op("GreaterOrEqual", &["input_ids", &p("sound")], vec![]);
+        let sound = f(&mut b, &sound);
+        // a column of zeros as wide as one token, to shift a row by one token either way
+        let first = b.op("Slice", &[&raw, &p("i0"), &p("i1"), &p("i-1")], vec![]);
+        let zero = b.op("Mul", &[&first, &p("0")], vec![]);
+        let shift = |b: &mut Nodes, x: &str, from_before: bool| {
+            if from_before {
+                let c = b.op("Concat", &[&zero, x], vec![int("axis", -1)]);
+                b.op("Slice", &[&c, &p("i0"), &p("i-1"), &p("i-1")], vec![])
+            } else {
+                let c = b.op("Concat", &[x, &zero], vec![int("axis", -1)]);
+                b.op("Slice", &[&c, &p("i1"), &p("end"), &p("i-1")], vec![])
+            }
+        };
+        let before = shift(&mut b, &sound, true);
+        let after = shift(&mut b, &sound, false);
+        let m = b.op("Mul", &[&space, &before], vec![]);
+        let gap = b.op("Mul", &[&m, &after], vec![]);
+        let scaled = b.op("Div", &[&p("limit"), "speed"], vec![]);
+        let scaled = b.op("Round", &[&scaled], vec![]);
+        let most = b.op("Max", &[&scaled, &p("2")], vec![]);
+        // token i-1's frames (a), token i's (d): a' = max(1, min(a, most - d)), d' = min(d, most - a')
+        let a = shift(&mut b, &raw, true);
+        let room = b.op("Sub", &[&most, &raw], vec![]);
+        let a2 = b.op("Min", &[&a, &room], vec![]);
+        let a2 = b.op("Max", &[&a2, &p("1")], vec![]);
+        let room = b.op("Sub", &[&most, &a2], vec![]);
+        let d2 = b.op("Min", &[&raw, &room], vec![]);
+        // each gap's new d at i, its new a moved back to i-1 (a gap's i-1 is never another gap's i)
+        let gap_next = shift(&mut b, &gap, false);
+        let a2_next = shift(&mut b, &a2, false);
+        let dd = b.op("Sub", &[&d2, &raw], vec![]);
+        let dd = b.op("Mul", &[&dd, &gap], vec![]);
+        let da = b.op("Sub", &[&a2_next, &raw], vec![]);
+        let da = b.op("Mul", &[&da, &gap_next], vec![]);
+        let sum = b.op("Add", &[&raw, &dd], vec![]);
+        b.new.push(node("Add", &[&sum, &da], &[&frames], vec![]));
+        self.nodes.splice(at + 1..at + 1, b.new);
+        Ok(())
+    }
+
     /// Drops the nodes and initializers no graph output needs.
     fn prune(&mut self) -> Result<()> {
         let mut needed: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -486,22 +593,38 @@ impl Graph {
     }
 }
 
-/// Writes `src` patched for the GPU to `dst` (through a .part file); `directml` adds the pads' change.
-pub fn patch(src: &Path, dst: &Path, directml: bool) -> Result<()> {
-    rewrite(src, dst, |graph| {
-        graph.gpufix()?;
-        if directml && graph.padfix()? != 3 {
-            bail!("the model's upsampling is not the one expected");
-        }
-        Ok(())
-    })
+/// The two speech models the patch takes.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Model {
+    Kokoro,
+    Kerstin,
 }
 
-/// Writes Kerstin's model to `dst` with only the pads' change, for DirectML: it has no STFT to patch.
-pub fn pads_only(src: &Path, dst: &Path) -> Result<()> {
+impl Model {
+    /// The node that times each token, and the limit on a word's last sound and the space after it, in frames
+    /// at speed 1: the top of the normal range measured on each graph (plan, "Silence between words").
+    fn timing(self) -> (&'static str, i64) {
+        match self {
+            Model::Kokoro => ("/encoder/Clip", 8),
+            Model::Kerstin => ("/Clip", 10),
+        }
+    }
+}
+
+/// Writes `src` patched to `dst` (through a .part file): Kokoro's STFT for the GPU, both models' limit on
+/// the silence between words; `directml` adds the pads' change.
+pub fn patch(src: &Path, dst: &Path, model: Model, directml: bool) -> Result<()> {
     rewrite(src, dst, |graph| {
-        if graph.padfix()? == 0 {
-            bail!("the model's upsampling is not the one expected");
+        if model == Model::Kokoro {
+            graph.gpufix()?;
+        }
+        let (clip, limit) = model.timing();
+        graph.limit_word_gaps(clip, limit)?;
+        if directml {
+            let fixed = graph.padfix()?;
+            if fixed == 0 || (model == Model::Kokoro && fixed != 3) {
+                bail!("the model's upsampling is not the one expected");
+            }
         }
         Ok(())
     })
@@ -570,6 +693,78 @@ mod tests {
             assert!((dot(k) - re).abs() < 1e-4 && (dot(bins + k) - im).abs() < 1e-4);
         }
         assert!(f[bins * n..(bins + 1) * n].iter().all(|v| v.to_bits() == 0)); // DC's imaginary +0
+    }
+
+    /// Runs a graph made only of elementwise ops, Slice and Concat on one row (batch 1), as ONNX Runtime would.
+    fn run(g: &Graph, feeds: &[(&str, Vec<f64>)]) -> std::collections::HashMap<String, Vec<f64>> {
+        let mut t: std::collections::HashMap<String, Vec<f64>> =
+            feeds.iter().map(|(k, v)| (k.to_string(), v.clone())).collect();
+        for i in &g.inits {
+            t.insert(str1(i, 8), values(i).unwrap());
+        }
+        let two = |a: &[f64], b: &[f64], f: fn(f64, f64) -> f64| -> Vec<f64> {
+            let n = a.len().max(b.len());
+            (0..n).map(|k| f(a[k % a.len()], b[k % b.len()])).collect()
+        };
+        for n in &g.nodes {
+            let ins: Vec<Vec<f64>> = strs(n, 1).iter().filter(|x| !x.is_empty()).map(|x| t[x].clone()).collect();
+            let out = match str1(n, 4).as_str() {
+                "Cast" | "Identity" => ins[0].clone(),
+                "Round" => ins[0].iter().map(|x| x.round_ties_even()).collect(),
+                "Clip" => two(&ins[0], &ins[1], f64::max),
+                "Equal" => two(&ins[0], &ins[1], |a, b| f64::from(a == b)),
+                "GreaterOrEqual" => two(&ins[0], &ins[1], |a, b| f64::from(a >= b)),
+                "Add" => two(&ins[0], &ins[1], |a, b| a + b),
+                "Sub" => two(&ins[0], &ins[1], |a, b| a - b),
+                "Mul" => two(&ins[0], &ins[1], |a, b| a * b),
+                "Div" => two(&ins[0], &ins[1], |a, b| a / b),
+                "Min" => two(&ins[0], &ins[1], f64::min),
+                "Max" => two(&ins[0], &ins[1], f64::max),
+                "Concat" => ins.concat(),
+                "Slice" => {
+                    let len = ins[0].len() as f64;
+                    let at = |x: f64| (if x < 0.0 { x + len } else { x }).clamp(0.0, len) as usize;
+                    ins[0][at(ins[1][0])..at(ins[2][0])].to_vec()
+                }
+                op => panic!("{op} is not run here"),
+            };
+            t.insert(strs(n, 2)[0].clone(), out);
+        }
+        t
+    }
+
+    /// A duration graph as Kokoro's ends: Clip (min 1) and Cast, with input_ids and speed as inputs.
+    fn durations(clip: &str) -> Graph {
+        let info = |name: &str| V::Bytes(encode(&vec![(1, s(name))]));
+        Graph {
+            nodes: vec![
+                [
+                    vec![(3, s(clip))],
+                    node("Clip", &["rounded", "one", ""], &["clipped"], vec![]),
+                ]
+                .concat(),
+                node("Cast", &["clipped"], &["frames"], vec![int("to", INT64 as i64)]),
+            ],
+            inits: vec![tensor_f32("one", &[], &[1.0])],
+            rest: vec![(11, info("input_ids")), (11, info("speed")), (12, info("frames"))],
+        }
+    }
+
+    #[test]
+    fn the_limit_shortens_a_long_pair_between_words_and_leaves_the_rest() {
+        let mut g = Graph::read(&durations("/encoder/Clip").write()).unwrap();
+        g.limit_word_gaps("/encoder/Clip", 8).unwrap();
+        g.prune().unwrap();
+        // pad, a word's end + space (15+5), a comma + space, a short pair (2+3), a pair the space
+        // makes long (4+12), a double space, pad
+        let ids = [0., 50., 16., 51., 3., 16., 52., 16., 53., 16., 54., 16., 16., 55., 0.];
+        let raw = [1., 15., 5., 3., 9., 9., 2., 3., 4., 12., 6., 20., 20., 2., 1.];
+        let frames = |speed: f64| {
+            run(&g, &[("input_ids", ids.to_vec()), ("rounded", raw.to_vec()), ("speed", vec![speed])])["frames"].clone()
+        };
+        assert_eq!(frames(1.0), [1., 3., 5., 3., 9., 9., 2., 3., 1., 7., 6., 20., 20., 2., 1.]);
+        // the limit scales as Round(8 / speed): 16 at half speed
+        assert_eq!(frames(0.5), [1., 11., 5., 3., 9., 9., 2., 3., 4., 12., 6., 20., 20., 2., 1.]);
     }
 
     fn tiny() -> Graph {
@@ -688,18 +883,24 @@ mod tests {
     }
 
     #[test]
-    fn pads_only_changes_the_pads_and_leaves_the_rest_of_the_graph() {
+    fn kerstins_patch_limits_the_gaps_and_changes_the_pads_and_leaves_the_rest() {
         let dir = std::env::temp_dir().join(format!("ebook2m4b-pads-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let (src, dst) = (dir.join("in.onnx"), dir.join("out.onnx"));
-        std::fs::write(&src, encode(&vec![(7, V::Bytes(tiny().write()))])).unwrap();
-        pads_only(&src, &dst).unwrap();
+        let (mut g, d) = (tiny(), durations("/Clip"));
+        g.nodes.extend(d.nodes);
+        g.inits.extend(d.inits);
+        g.rest.extend(d.rest);
+        std::fs::write(&src, encode(&vec![(7, V::Bytes(g.write()))])).unwrap();
+        patch(&src, &dst, Model::Kerstin, true).unwrap();
         let model = parse(&std::fs::read(&dst).unwrap()).unwrap();
         let V::Bytes(g) = &model[0].1 else { panic!() };
         let g = Graph::read(g).unwrap();
         let ops: Vec<String> = g.nodes.iter().map(|n| str1(n, 4)).collect();
         std::fs::remove_dir_all(&dir).unwrap();
         assert!(ops.contains(&"STFT".into()) && !ops.contains(&"Conv".into()), "{ops:?}");
+        assert!(g.nodes.iter().any(|n| strs(n, 2) == ["frames"] && str1(n, 4) == "Cast"));
+        assert!(g.nodes.iter().any(|n| strs(n, 2) == ["clipped"] && str1(n, 4) == "Add")); // the limit's last
         let up = g.nodes.iter().find(|n| str1(n, 4) == "ConvTranspose").unwrap();
         let attrs: Vec<(String, Vec<i64>)> = up
             .iter()

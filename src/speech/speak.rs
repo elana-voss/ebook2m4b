@@ -1,6 +1,6 @@
 //! A book's chunks spoken by Kokoro into work/<book>/<voice>/<n:06>.wav (float WAV, 24 kHz):
 //! a kept chunk is not spoken again; work/<book>/<voice>/text-id names the texts, speed and pronunciation
-//! (sounds::version) they were spoken from, another id (or --overwrite) clears the folder; one
+//! (sounds::version) and the models' patch (onnx::VERSION) they were spoken from, another id (or --overwrite) clears the folder; one
 //! not cleared stops the book. The heat wait before each chunk. --demo speaks about a minute at the
 //! start, the middle and the end.
 //! Each chunk goes to part.wav first, then is renamed: a stopped run leaves no half chunk.
@@ -49,10 +49,16 @@ fn unsure_line(i: usize, err: f32, text: &str) -> String {
     format!("{i}\t{err:.2}\t{text}\n")
 }
 
-/// What a chunk folder was spoken from: the texts, the speed and the pronunciation (sounds::version).
+/// What a chunk folder was spoken from: the texts, the speed, the pronunciation (sounds::version) and the
+/// speech models' patch.
 pub fn work_id(cs: &[Chunk], speed: f32, version: &Value) -> String {
+    work_id_of(cs, speed, version, crate::speech::onnx::VERSION)
+}
+
+/// The work id with the speech models' patch version `model` (onnx::VERSION).
+fn work_id_of(cs: &[Chunk], speed: f32, version: &Value, model: u32) -> String {
     let texts: Vec<&str> = cs.iter().map(|c| c.text.as_str()).collect();
-    let v = json!([texts, {"speed": speed.to_string(), "pronounce": version}]);
+    let v = json!([texts, {"speed": speed.to_string(), "pronounce": version, "model": model}]);
     crate::setup::hash::json_key(&v)
 }
 
@@ -207,13 +213,15 @@ mod tests {
 
     #[test]
     fn the_work_id_holds_the_texts_speed_and_pronunciation() {
-        // SHA-256 of [["Héllo.","Two"],{"speed":"0.9","pronounce":1}]
+        // SHA-256 of [["Héllo.","Two"],{"speed":"0.9","pronounce":1,"model":3}]
         let cs = [chunk("Héllo."), chunk("Two")];
         assert_eq!(
-            work_id(&cs, 0.9, &json!(1)),
-            "66a4a833b8080294baeb645be9aca8718e13704b22a618efdc997cf8c493cd5a"
+            work_id_of(&cs, 0.9, &json!(1), 3),
+            "acb785b77af1be81d2254cdf49f9a0635e8f846ac964db2bdcd236858fc3c009"
         );
         assert_ne!(work_id(&cs, 0.9, &json!(1)), work_id(&cs, 0.9, &json!(2)));
+        // the speech models' patch (onnx::VERSION): a book spoken by an older one is spoken again
+        assert_ne!(work_id(&cs, 0.9, &json!(1)), work_id_of(&cs, 0.9, &json!(1), 2));
     }
 
     #[test]
