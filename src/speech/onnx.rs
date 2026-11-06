@@ -9,9 +9,11 @@
 //! - on another card (DirectML) also: the three upsampling
 //!   ConvTranspose nodes get pads 1/0 and no output_padding (same output, which DirectML otherwise refuses);
 //! - both models (Kokoro's and Kerstin's): after the Clip that times each token, a word's last sound and the
-//!   space after it, with no punctuation between the two words, together get at most Round(L/speed) frames
-//!   (Kokoro 8, Kerstin 10 at speed 1: the top of the normal range measured; above it the voice made silences of
-//!   0.2-0.44 s mid-sentence); every other token as it was (limit_word_gaps).
+//!   space after it, with no punctuation between the two words, if together over Round(L/speed) frames (Kokoro 8,
+//!   Kerstin 10 at speed 1: the top of the normal range measured; above it the voice made silences of 0.2-0.44 s
+//!   mid-sentence) get Round(S/speed) (Kokoro 4, Kerstin 3: such a pair renders silent over nearly all its
+//!   frames, about 0.025 s each, so S frames stay under the measured top); every other token as it was
+//!   (limit_word_gaps).
 //!
 //! Kerstin's model has no STFT: it gets the limit, and the pads' change on DirectML.
 //!
@@ -23,7 +25,7 @@ use anyhow::{Context, Result, bail};
 use std::path::Path;
 
 /// The patch's version, in the patched model's file name: raised whenever the patch changes what it writes.
-pub const VERSION: u32 = 3;
+pub const VERSION: u32 = 4;
 const G: &str = "/decoder/decoder/generator/";
 const FLOAT: u64 = 1;
 const INT64: u64 = 7;
@@ -487,10 +489,11 @@ impl Graph {
     }
 
     /// Limits the silence between two words with no punctuation between them: after the Clip that times each
-    /// token, where token i is a space and both neighbours are sounds or marks (id 17 or more), the frames of
-    /// tokens i-1 and i together are at most Round(limit / speed), token i-1 shortened first, each at least 1.
+    /// token, where token i is a space and both neighbours are sounds or marks (id 17 or more), and tokens i-1
+    /// and i together have more than Round(limit / speed) frames, the two get Round(set / speed) (at least 2),
+    /// token i-1 shortened first, each at least 1; a pair at or under the limit stays as it was.
     /// The new nodes write the Clip's old output, so what read it reads the limited frames.
-    fn limit_word_gaps(&mut self, clip: &str, limit: i64) -> Result<()> {
+    fn limit_word_gaps(&mut self, clip: &str, limit: i64, set: i64) -> Result<()> {
         let inputs: Vec<String> = self
             .rest
             .iter()
@@ -518,6 +521,7 @@ impl Graph {
             tensor_i64(&p("space"), &[SPACE]),
             tensor_i64(&p("sound"), &[FIRST_SOUND]),
             tensor_f32(&p("limit"), &[1], &[limit as f32]),
+            tensor_f32(&p("set"), &[1], &[set as f32]),
             tensor_f32(&p("0"), &[1], &[0.0]),
             tensor_f32(&p("1"), &[1], &[1.0]),
             tensor_f32(&p("2"), &[1], &[2.0]),
@@ -547,12 +551,21 @@ impl Graph {
         let before = shift(&mut b, &sound, true);
         let after = shift(&mut b, &sound, false);
         let m = b.op("Mul", &[&space, &before], vec![]);
-        let gap = b.op("Mul", &[&m, &after], vec![]);
-        let scaled = b.op("Div", &[&p("limit"), "speed"], vec![]);
-        let scaled = b.op("Round", &[&scaled], vec![]);
-        let most = b.op("Max", &[&scaled, &p("2")], vec![]);
-        // token i-1's frames (a), token i's (d): a' = max(1, min(a, most - d)), d' = min(d, most - a')
+        let m = b.op("Mul", &[&m, &after], vec![]);
+        let round = |b: &mut Nodes, x: &str| {
+            let r = b.op("Div", &[x, "speed"], vec![]);
+            b.op("Round", &[&r], vec![])
+        };
+        let top = round(&mut b, &p("limit"));
+        let set = round(&mut b, &p("set"));
+        let most = b.op("Max", &[&set, &p("2")], vec![]);
+        // token i-1's frames (a), token i's (d); a gap is such a pair with a + d over the top
         let a = shift(&mut b, &raw, true);
+        let pair = b.op("Add", &[&a, &raw], vec![]);
+        let over = b.op("Greater", &[&pair, &top], vec![]);
+        let over = f(&mut b, &over);
+        let gap = b.op("Mul", &[&m, &over], vec![]);
+        // set to most: a' = max(1, min(a, most - d)), d' = min(d, most - a')
         let room = b.op("Sub", &[&most, &raw], vec![]);
         let a2 = b.op("Min", &[&a, &room], vec![]);
         let a2 = b.op("Max", &[&a2, &p("1")], vec![]);
@@ -601,12 +614,12 @@ pub enum Model {
 }
 
 impl Model {
-    /// The node that times each token, and the limit on a word's last sound and the space after it, in frames
-    /// at speed 1: the top of the normal range measured on each graph (plan, "Silence between words").
-    fn timing(self) -> (&'static str, i64) {
+    /// The node that times each token, the limit on a word's last sound and the space after it, and the frames
+    /// such a pair over it gets, both at speed 1 (plan, "Silence between words").
+    fn timing(self) -> (&'static str, i64, i64) {
         match self {
-            Model::Kokoro => ("/encoder/Clip", 8),
-            Model::Kerstin => ("/Clip", 10),
+            Model::Kokoro => ("/encoder/Clip", 8, 4),
+            Model::Kerstin => ("/Clip", 10, 3),
         }
     }
 }
@@ -618,8 +631,8 @@ pub fn patch(src: &Path, dst: &Path, model: Model, directml: bool) -> Result<()>
         if model == Model::Kokoro {
             graph.gpufix()?;
         }
-        let (clip, limit) = model.timing();
-        graph.limit_word_gaps(clip, limit)?;
+        let (clip, limit, set) = model.timing();
+        graph.limit_word_gaps(clip, limit, set)?;
         if directml {
             let fixed = graph.padfix()?;
             if fixed == 0 || (model == Model::Kokoro && fixed != 3) {
@@ -714,6 +727,7 @@ mod tests {
                 "Clip" => two(&ins[0], &ins[1], f64::max),
                 "Equal" => two(&ins[0], &ins[1], |a, b| f64::from(a == b)),
                 "GreaterOrEqual" => two(&ins[0], &ins[1], |a, b| f64::from(a >= b)),
+                "Greater" => two(&ins[0], &ins[1], |a, b| f64::from(a > b)),
                 "Add" => two(&ins[0], &ins[1], |a, b| a + b),
                 "Sub" => two(&ins[0], &ins[1], |a, b| a - b),
                 "Mul" => two(&ins[0], &ins[1], |a, b| a * b),
@@ -751,20 +765,21 @@ mod tests {
     }
 
     #[test]
-    fn the_limit_shortens_a_long_pair_between_words_and_leaves_the_rest() {
+    fn the_limit_sets_a_long_pair_between_words_and_leaves_the_rest() {
         let mut g = Graph::read(&durations("/encoder/Clip").write()).unwrap();
-        g.limit_word_gaps("/encoder/Clip", 8).unwrap();
+        g.limit_word_gaps("/encoder/Clip", 8, 4).unwrap();
         g.prune().unwrap();
         // pad, a word's end + space (15+5), a comma + space, a short pair (2+3), a pair the space
-        // makes long (4+12), a double space, pad
-        let ids = [0., 50., 16., 51., 3., 16., 52., 16., 53., 16., 54., 16., 16., 55., 0.];
-        let raw = [1., 15., 5., 3., 9., 9., 2., 3., 4., 12., 6., 20., 20., 2., 1.];
+        // makes long (4+12), a double space, a pair at the limit (6+2), pad
+        let ids = [0., 50., 16., 51., 3., 16., 52., 16., 53., 16., 54., 16., 16., 57., 16., 55., 0.];
+        let raw = [1., 15., 5., 3., 9., 9., 2., 3., 4., 12., 6., 20., 20., 6., 2., 2., 1.];
         let frames = |speed: f64| {
             run(&g, &[("input_ids", ids.to_vec()), ("rounded", raw.to_vec()), ("speed", vec![speed])])["frames"].clone()
         };
-        assert_eq!(frames(1.0), [1., 3., 5., 3., 9., 9., 2., 3., 1., 7., 6., 20., 20., 2., 1.]);
-        // the limit scales as Round(8 / speed): 16 at half speed
-        assert_eq!(frames(0.5), [1., 11., 5., 3., 9., 9., 2., 3., 4., 12., 6., 20., 20., 2., 1.]);
+        // a pair over 8 frames gets 4, its space keeping what the last sound cannot give; pairs at or under 8 stay
+        assert_eq!(frames(1.0), [1., 1., 3., 3., 9., 9., 2., 3., 1., 3., 6., 20., 20., 6., 2., 2., 1.]);
+        // both scale with speed: over Round(8 / 0.5) = 16 gets Round(4 / 0.5) = 8
+        assert_eq!(frames(0.5), [1., 3., 5., 3., 9., 9., 2., 3., 4., 12., 6., 20., 20., 6., 2., 2., 1.]);
     }
 
     fn tiny() -> Graph {

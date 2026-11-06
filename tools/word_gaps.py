@@ -2,7 +2,8 @@
 
   python tools/word_gaps.py <sentences> --lang en|de --model <model.onnx> --voice <voice.bin>
       [--speed 1] [--split 0.16] [--hear] [--out <table.json>] [--label <name>]
-  python tools/word_gaps.py --compare <before.json> <after.json> --limit <frames at speed 1> [--out <table.json>]
+  python tools/word_gaps.py --compare <before.json> <after.json> --limit <frames at speed 1> --top <seconds>
+      [--out <table.json>]
   python tools/word_gaps.py --trace <table.json>... [--out <table.json>]
 
 <sentences>: a text file, one sentence a line, or a JSON list of [before, after, sentence] whose pause sits
@@ -85,14 +86,16 @@ def session(model):
     return s, frames
 
 
-def silence(audio, lo, hi):
-    """The longest run of samples whose 10 ms RMS is under -45 dBFS in audio[lo:hi]: (seconds, first, end)."""
+def silence(audio, lo, hi, cut):
+    """The longest run of samples whose 10 ms RMS is under -45 dBFS in audio[lo:hi] that starts before `cut`
+    (the first sound after the space: a run starting inside it is that word's, such as a pause at the
+    punctuation after it): (seconds, first, end)."""
     rms = np.sqrt(np.convolve(audio.astype(np.float64) ** 2, np.ones(WIN) / WIN, "same"))
     best = run = 0
     at = lo
     for k, q in enumerate(rms[lo:hi] < QUIET):
         run = run + 1 if q else 0
-        if run > best:
+        if run > best and lo + k + 1 - run < cut:
             best, at = run, lo + k + 1 - run
     return best / RATE, at, at + best
 
@@ -188,7 +191,7 @@ def measure(args):
                 continue
             end = i + 3 if ids[i + 1] in stress else i + 2
             end = min(end, len(ids))
-            sil, lo, hi = silence(audio, int(start[i - 1]), int(start[end]))
+            sil, lo, hi = silence(audio, int(start[i - 1]), int(start[end]), int(start[i + 1]))
             # where the silence sits: each token's symbol, frames and seconds of the run inside its frames
             trace = [[chars[k], dur[k], round(max(0, min(hi, start[k + 1]) - max(lo, start[k])) / RATE, 4)]
                      for k in range(i - 1, end)]
@@ -241,6 +244,7 @@ def compare(args):
     top = round(args.limit / before["speed"])  # Python's round, as ONNX's Round, halves to even
     over_b = over_a = changed_pairs = other_changed = other_tokens = 0
     rows = []
+    gaps = iter(zip(before["gaps"], after["gaps"]))  # in the order of pairs(), sentence by sentence
     for n, (b, a) in enumerate(zip(before["sentences"], after["sentences"])):
         if b["ids"] != a["ids"]:
             sys.exit(f"sentence {n + 1}: the tokens differ")
@@ -251,7 +255,9 @@ def compare(args):
             over_b += fb > top
             over_a += fa > top
             changed_pairs += fb <= top and (b["frames"][j], b["frames"][i]) != (a["frames"][j], a["frames"][i])
-            rows.append({"sentence": n + 1, "token": i, "before": fb, "after": fa})
+            gb, ga = next(gaps)
+            rows.append({"sentence": n + 1, "token": i, "words": gb["words"], "before": fb, "after": fa,
+                         "silence_before": gb["silence"], "silence_after": ga["silence"]})
         for k in range(len(b["ids"])):
             if k not in inside:
                 other_tokens += 1
@@ -259,6 +265,14 @@ def compare(args):
     print(f"speed {before['speed']}, limit {top} frames: {len(rows)} gaps; over the limit before {over_b}, "
           f"after {over_a}; pairs under it changed {changed_pairs}")
     print(f"  other tokens {other_tokens}, changed {other_changed}")
+    set_ = [r for r in rows if r["before"] > top]
+    if set_:
+        print(f"  pairs the rule set ({len(set_)}): silence after {min(r['silence_after'] for r in set_):.3f}-"
+              f"{max(r['silence_after'] for r in set_):.3f} s, over the top {args.top} s "
+              f"{sum(r['silence_after'] > args.top for r in set_)}")
+    kept = [r for r in rows if r["before"] <= top]
+    print(f"  pairs left ({len(kept)}): over the top {args.top} s before {sum(r['silence_before'] > args.top for r in kept)}, "
+          f"after {sum(r['silence_after'] > args.top for r in kept)} (frames unchanged: not the rule's)")
     wb, wa = (sum(r["wrong"] for r in t["gaps"]) for t in (before, after))
     print(f"  wrong gaps (silence >= {before['split']} s) before {wb}, after {wa}")
     if "match" in before["sentences"][0] and "match" in after["sentences"][0]:
@@ -266,7 +280,7 @@ def compare(args):
         ma = [s["match"] for s in after["sentences"]]
         print(f"  Whisper word match before {sum(mb) / len(mb):.4f}, after {sum(ma) / len(ma):.4f}; sentences "
               f"lower after {sum(y < x for x, y in zip(mb, ma))}, higher {sum(y > x for x, y in zip(mb, ma))}")
-    json.dump(rows, open(args.out, "w", encoding="utf-8"), indent=0)
+    json.dump(rows, open(args.out, "w", encoding="utf-8"), ensure_ascii=False, indent=0)
 
 
 def trace(args):
@@ -304,13 +318,14 @@ def main():
     a.add_argument("--hear", action="store_true", help="Whisper's word match of each sentence")
     a.add_argument("--compare", nargs=2, metavar=("BEFORE", "AFTER"))
     a.add_argument("--limit", type=int, help="with --compare: the limit at speed 1, in frames")
+    a.add_argument("--top", type=float, help="with --compare: the top of the normal silence, in seconds")
     a.add_argument("--trace", nargs="+", metavar="TABLE", help="where the wrong gaps' silence sits")
     args = a.parse_args()
     if args.trace:
         trace(args)
     elif args.compare:
-        if args.limit is None:
-            a.error("--compare needs --limit")
+        if args.limit is None or args.top is None:
+            a.error("--compare needs --limit and --top")
         compare(args)
     elif not (args.sentences and args.lang and args.model and args.voice):
         a.error("measuring needs <sentences>, --lang, --model and --voice")
