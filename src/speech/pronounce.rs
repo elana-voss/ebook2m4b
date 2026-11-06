@@ -294,7 +294,7 @@ pub(crate) mod tests {
     #[test]
     #[ignore]
     fn phonemes_of_lines() {
-        let var = |k| std::env::var(k).unwrap_or_default();
+        let var = |k| std::env::var(k).expect("WORD_GAPS_IN, _OUT and _LANG are set by tools/word_gaps.py");
         let de = P.german();
         let p = if var("WORD_GAPS_LANG") == "de" { &de } else { &*P };
         let text = std::fs::read_to_string(var("WORD_GAPS_IN")).unwrap();

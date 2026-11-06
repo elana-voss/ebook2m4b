@@ -17,7 +17,7 @@ frames are those of token i-1 (the word's last sound) and token i; its silence i
 windows under -45 dBFS from token i-1's start to the end of the first sound after the space (a stress mark
 before it taken with it). A gap with silence at or over --split is "wrong", the rest "normal".
 
---hear: Whisper (setup's whisper-server and large-v3-turbo, as the product, no prompt) hears each sentence;
+--hear: Whisper (setup's whisper-server and whisper-model, as the product, no prompt) hears each sentence;
 its word match is the share of the sentence's words heard in order (difflib on lower-cased words).
 
 --compare (24b): two tables of the same sentences and speed, the unpatched model's and the patched one's.
@@ -43,12 +43,23 @@ SETUP = os.path.join(os.environ.get("LOCALAPPDATA", ""), "ebook2m4b")
 PORT = 8932  # not the product's 8931: a book being spoken keeps its own server
 
 
+def load(path):
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def save(obj, path):
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(obj, f, ensure_ascii=False, indent=0)
+
+
 def sentences(path):
     """The sentences and, for a JSON input, each one's tagged pause as (before, after)."""
     if path.endswith(".json"):
-        items = json.load(open(path, encoding="utf-8"))
+        items = load(path)
         return [s for _, _, s in items], [(a, b) for a, b, _ in items]
-    lines = [l.strip() for l in open(path, encoding="utf-8") if l.strip()]
+    with open(path, encoding="utf-8") as f:
+        lines = [l.strip() for l in f if l.strip()]
     return lines, [None] * len(lines)
 
 
@@ -56,13 +67,15 @@ def phonemes(lines, lang):
     """The product's phonemes of each line (pronounce.rs through its ignored test)."""
     with tempfile.TemporaryDirectory() as d:
         src, dst = os.path.join(d, "in.txt"), os.path.join(d, "out.txt")
-        open(src, "w", encoding="utf-8").write("\n".join(lines) + "\n")
+        with open(src, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines) + "\n")
         env = dict(os.environ, WORD_GAPS_IN=src, WORD_GAPS_OUT=dst, WORD_GAPS_LANG=lang)
         r = subprocess.run(["cargo", "test", "--release", "-j", "4", "phonemes_of_lines", "--", "--ignored"],
                            cwd=ROOT, env=env, capture_output=True, text=True)
         if r.returncode:
             sys.exit("phonemes failed:\n" + r.stderr[-2000:])
-        out = open(dst, encoding="utf-8").read().split("\n")[: len(lines)]
+        with open(dst, encoding="utf-8") as f:
+            out = f.read().split("\n")[: len(lines)]
     assert len(out) == len(lines), "a line lost its phonemes"
     return out
 
@@ -104,10 +117,10 @@ class Ear:
     """whisper.cpp's server as the product starts it (whisper.rs server_args), stopped by close()."""
 
     def __init__(self, lang):
-        setup = json.load(open(os.path.join(SETUP, "setup.json"), encoding="utf-8"))
+        setup = load(os.path.join(SETUP, "setup.json"))
         exe = os.path.join(setup["whisper-server"], "whisper-server.exe")
-        model = os.path.join(SETUP, "models", "ggml-large-v3-turbo-q8_0.bin")
-        self.proc = subprocess.Popen([exe, "-m", model, "--port", str(PORT), "-t", "4", "-l", lang],
+        args = [exe, "-m", setup["whisper-model"], "--port", str(PORT), "-t", "4", "-l", lang]
+        self.proc = subprocess.Popen(args,
                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         for _ in range(120):
             try:
@@ -123,7 +136,9 @@ class Ear:
     def hear(self, audio):
         buf = io.BytesIO()
         with wave.open(buf, "wb") as w:
-            w.setnchannels(1), w.setsampwidth(2), w.setframerate(RATE)
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(RATE)
             w.writeframes((np.clip(audio, -1, 1) * 32767).astype("<i2").tobytes())
         b = uuid.uuid4().hex
         fields = [("response_format", "json"), ("temperature", "0"), ("temperature_inc", "0")]
@@ -154,7 +169,7 @@ def tagged_word(sentence, pause):
 
 
 def measure(args):
-    vocab = {k: v for k, v in json.load(open(TOKENIZER, encoding="utf-8"))["model"]["vocab"].items()}
+    vocab = load(TOKENIZER)["model"]["vocab"]
     stress = {vocab["ˈ"], vocab["ˌ"]}
     style = np.fromfile(args.voice, dtype=np.float32).reshape(-1, 256)
     lines, pauses = sentences(args.sentences)
@@ -206,9 +221,8 @@ def measure(args):
             print(f"sentence {n + 1}: its tagged pause could not be placed", file=sys.stderr)
     if ear:
         ear.close()
-    json.dump({"model": args.model, "voice": args.voice, "speed": args.speed, "split": args.split,
-               "gaps": rows, "sentences": per_sentence},
-              open(args.out, "w", encoding="utf-8"), ensure_ascii=False, indent=0)
+    save({"model": args.model, "voice": args.voice, "speed": args.speed, "split": args.split,
+          "gaps": rows, "sentences": per_sentence}, args.out)
     summary(args.label or os.path.basename(os.path.dirname(args.model)), rows, arrows_seen, pauses)
 
 
@@ -238,7 +252,7 @@ def pairs(ids):
 
 
 def compare(args):
-    before, after = (json.load(open(f, encoding="utf-8")) for f in args.compare)
+    before, after = (load(f) for f in args.compare)
     if before["speed"] != after["speed"] or len(before["sentences"]) != len(after["sentences"]):
         sys.exit("the two tables are not of the same sentences and speed")
     top = round(args.limit / before["speed"])  # Python's round, as ONNX's Round, halves to even
@@ -280,7 +294,7 @@ def compare(args):
         ma = [s["match"] for s in after["sentences"]]
         print(f"  Whisper word match before {sum(mb) / len(mb):.4f}, after {sum(ma) / len(ma):.4f}; sentences "
               f"lower after {sum(y < x for x, y in zip(mb, ma))}, higher {sum(y > x for x, y in zip(mb, ma))}")
-    json.dump(rows, open(args.out, "w", encoding="utf-8"), ensure_ascii=False, indent=0)
+    save(rows, args.out)
 
 
 def trace(args):
@@ -288,7 +302,7 @@ def trace(args):
     word's last sound, the space and the sounds after it (a stress mark and the first sound); each gap to --out."""
     rows = []
     for f in args.trace:
-        t = json.load(open(f, encoding="utf-8"))
+        t = load(f)
         bad = [g for g in t["gaps"] if g["silence"] >= args.split]
         part = [sum(g["trace"][0][2] for g in bad), sum(g["trace"][1][2] for g in bad),
                 sum(x[2] for g in bad for x in g["trace"][2:])]
@@ -302,7 +316,7 @@ def trace(args):
               f"{sum(sum(x[2] for x in g['trace'][2:]) > g['silence'] / 2 for g in bad)}")
         rows += [dict(table=os.path.basename(f), **{k: g[k] for k in ("sentence", "words", "silence", "trace")})
                  for g in bad]
-    json.dump(rows, open(args.out, "w", encoding="utf-8"), ensure_ascii=False, indent=0)
+    save(rows, args.out)
 
 
 def main():

@@ -1,11 +1,11 @@
-//! A book's chunks spoken by Kokoro into work/<book>/<voice>/<n:06>.wav (float WAV, 24 kHz):
-//! a kept chunk is not spoken again; work/<book>/<voice>/text-id names the texts, speed and pronunciation
-//! (sounds::version) and the models' patch (onnx::VERSION) they were spoken from, another id (or --overwrite) clears the folder; one
-//! not cleared stops the book. The heat wait before each chunk. --demo speaks about a minute at the
+//! A book's chunks spoken by the speech model (Kokoro, Kerstin) into work/<book>/<voice>/<n:06>.wav
+//! (float WAV, 24 kHz): a kept chunk is not spoken again; work/<book>/<voice>/text-id names the texts, speed
+//! and pronunciation (sounds::version) and both speech models' patch (onnx::VERSION) they were spoken from,
+//! another id (or --overwrite) clears the folder; one not cleared stops the book. The heat wait before each chunk. --demo speaks about a minute at the
 //! start, the middle and the end.
 //! Each chunk goes to part.wav first, then is renamed: a stopped run leaves no half chunk.
-//! Each new chunk is heard back by Whisper (whisper.rs, told the book's names: `hint` of the chunk's text) and compared by sound
-//! (heard::heard_error); over MAX_ERROR it is spoken again, the best of TRIES kept, and one still over goes into
+//! Each new chunk is heard back by Whisper (whisper.rs, told the book's names: `hint` of the chunk's text)
+//! and compared by sound (heard::heard_error); over MAX_ERROR it is spoken again, the best of TRIES kept, and one still over goes into
 //! unsure.txt as "<n> TAB <error> TAB <text>". Voice and Whisper are made at the first chunk to speak
 //! and leave the GPU when speak_all ends (the language model gets its memory for the next book).
 use crate::speech::chunks::Chunk;
@@ -52,12 +52,8 @@ fn unsure_line(i: usize, err: f32, text: &str) -> String {
 /// What a chunk folder was spoken from: the texts, the speed, the pronunciation (sounds::version) and the
 /// speech models' patch.
 pub fn work_id(cs: &[Chunk], speed: f32, version: &Value) -> String {
-    work_id_of(cs, speed, version, crate::speech::onnx::VERSION)
-}
-
-/// The work id with the speech models' patch version `model` (onnx::VERSION).
-fn work_id_of(cs: &[Chunk], speed: f32, version: &Value, model: u32) -> String {
     let texts: Vec<&str> = cs.iter().map(|c| c.text.as_str()).collect();
+    let model = crate::speech::onnx::VERSION;
     let v = json!([texts, {"speed": speed.to_string(), "pronounce": version, "model": model}]);
     crate::setup::hash::json_key(&v)
 }
@@ -213,15 +209,14 @@ mod tests {
 
     #[test]
     fn the_work_id_holds_the_texts_speed_and_pronunciation() {
-        // SHA-256 of [["Héllo.","Two"],{"speed":"0.9","pronounce":1,"model":3}]
+        // SHA-256 of [["Héllo.","Two"],{"speed":"0.9","pronounce":1,"model":4}]: the speech models' patch
+        // (onnx::VERSION 4) is in it, so a book spoken by an older one is spoken again
         let cs = [chunk("Héllo."), chunk("Two")];
         assert_eq!(
-            work_id_of(&cs, 0.9, &json!(1), 3),
-            "acb785b77af1be81d2254cdf49f9a0635e8f846ac964db2bdcd236858fc3c009"
+            work_id(&cs, 0.9, &json!(1)),
+            "0e47fbf52da8f9bafacf3e92c735a9fa4cf797512dd4dec8ef73436eeeb942aa"
         );
         assert_ne!(work_id(&cs, 0.9, &json!(1)), work_id(&cs, 0.9, &json!(2)));
-        // the speech models' patch (onnx::VERSION): a book spoken by an older one is spoken again
-        assert_ne!(work_id(&cs, 0.9, &json!(1)), work_id_of(&cs, 0.9, &json!(1), 2));
     }
 
     #[test]

@@ -4,8 +4,10 @@
 //! Each download is checked by its pinned SHA-256 before it is unpacked.
 //! Kokoro's model is then patched once per patch version (onnx.rs: for the GPU, and the silence between words
 //! limited), as "kokoro-gpu" ("kokoro-gpu-dml" on DirectML); Kerstin's likewise as "kerstin-gpu[-dml]".
+//! An older patch version's copies, for either card, are removed.
 //! Each card's ONNX Runtime has its own folder (ort, ort-dml), so a card changed later fetches its own.
-//! Kerstin, the German voice, and her model are fetched (and patched) the first time a German book is read (Tools::kerstin).
+//! Kerstin, the German voice, and her model are fetched (and patched) the first time a German book is read
+//! (Tools::kerstin).
 //! Libraries nothing loads (TensorRT's provider, cuFFTW, NVBLAS) are not unpacked.
 //! Linux: links in the archives are made again, every file taken may be run, and the libraries' folders
 //! are put on LD_LIBRARY_PATH for the programs started later (llama-server, whisper-server).
@@ -44,11 +46,24 @@ pub fn patched_model(model: Model, card: Card) -> (&'static str, String) {
 }
 
 /// Makes `model`'s patched copy for `card` from the downloaded one (`source`, its key) unless this patch
-/// made it already; an older patch's file is removed.
-fn make_patched(found: &mut BTreeMap<String, PathBuf>, home: &Path, state: &Path, model: Model, card: Card) -> Result<()> {
+/// made it already; an older patch's files, for either card, are removed.
+fn make_patched(
+    found: &mut BTreeMap<String, PathBuf>,
+    home: &Path,
+    state: &Path,
+    model: Model,
+    card: Card,
+) -> Result<()> {
     let (key, rel) = patched_model(model, card);
     let dst = home.join(rel);
+    let known = found.len();
+    if let Some(folder) = dst.parent() {
+        remove_older_patches(found, folder);
+    }
     if patched_is_current(found, key, &dst) {
+        if found.len() != known {
+            fs::write(state, serde_json::to_string_pretty(&found)?)?;
+        }
         return Ok(());
     }
     let source = if model == Model::Kokoro { "kokoro" } else { "kerstin-model" };
@@ -64,6 +79,29 @@ fn make_patched(found: &mut BTreeMap<String, PathBuf>, home: &Path, state: &Path
     }
     fs::write(state, serde_json::to_string_pretty(&found)?)?;
     Ok(())
+}
+
+/// Removes from `folder` every patched model (model-gpu[-dml]-v<n>.onnx) of an older patch version, for
+/// either card, and the setup.json keys naming one.
+fn remove_older_patches(found: &mut BTreeMap<String, PathBuf>, folder: &Path) {
+    let older = |name: &str| {
+        let Some(rest) = name.strip_prefix("model-gpu").and_then(|r| r.strip_suffix(".onnx")) else {
+            return false;
+        };
+        let rest = rest.strip_prefix("-dml").unwrap_or(rest);
+        rest.strip_prefix("-v")
+            .and_then(|n| n.parse::<u32>().ok())
+            .is_some_and(|n| n < crate::speech::onnx::VERSION)
+    };
+    let Ok(entries) = fs::read_dir(folder) else {
+        return; // no folder, nothing to remove
+    };
+    for path in entries.flatten().map(|e| e.path()) {
+        if path.file_name().and_then(|n| n.to_str()).is_some_and(older) {
+            let _ = fs::remove_file(&path); // a copy that stays only costs disk; the next start tries again
+            found.retain(|_, p| *p != path);
+        }
+    }
 }
 
 /// Whether setup.json's patched model is there and made by this patch.
@@ -435,6 +473,31 @@ mod tests {
     }
 
     #[test]
+    fn older_patches_for_either_card_are_removed() {
+        let dir = std::env::temp_dir().join(format!("ebook2m4b-older-{}", std::process::id()));
+        let v = crate::speech::onnx::VERSION;
+        let names = [
+            format!("model-gpu-dml-v{}.onnx", v - 1),
+            format!("model-gpu-v{}.onnx", v - 1),
+            format!("model-gpu-v{v}.onnx"),
+            format!("model-gpu-dml-v{v}.onnx"),
+            "model.onnx".to_string(),
+        ];
+        fs::create_dir_all(&dir).unwrap();
+        for n in &names {
+            fs::write(dir.join(n), b"x").unwrap();
+        }
+        let mut found = BTreeMap::new();
+        found.insert("kokoro-gpu-dml".to_string(), dir.join(&names[0]));
+        found.insert("kokoro".to_string(), dir.join(&names[4]));
+        remove_older_patches(&mut found, &dir);
+        let left: Vec<bool> = names.iter().map(|n| dir.join(n).exists()).collect();
+        assert_eq!(left, [false, false, true, true, true]);
+        assert_eq!(found.keys().collect::<Vec<_>>(), ["kokoro"]);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
     fn the_dlls_nothing_loads_are_not_unpacked() {
         let dir = std::env::temp_dir().join(format!("ebook2m4b-unused-{}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
@@ -533,7 +596,8 @@ mod tests {
 
     #[test]
     fn kerstin_on_another_card_has_the_model_with_directmls_pads() {
-        let found: BTreeMap<String, PathBuf> = ["kerstin-model", "kerstin-gpu", "kerstin-gpu-dml", "kokoro-tokenizer", "voice-df_kerstin"]
+        let keys = ["kerstin-model", "kerstin-gpu", "kerstin-gpu-dml", "kokoro-tokenizer", "voice-df_kerstin"];
+        let found: BTreeMap<String, PathBuf> = keys
             .map(|k| (k.to_string(), PathBuf::from(format!("/{k}"))))
             .into_iter()
             .collect();

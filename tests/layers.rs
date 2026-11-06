@@ -41,7 +41,7 @@ const NEVER: [(&str, &str); 8] = [
     ("text/extract.rs", "crate::model::llm"),
 ];
 
-/// The one crossing upward: setup patches Kokoro's model as it fetches it (speech/onnx.rs).
+/// The one crossing upward: setup patches both speech models as it fetches them (speech/onnx.rs).
 const UPWARD: [(&str, &str); 1] = [("setup/mod.rs", "speech::onnx")];
 
 /// The files that may print.

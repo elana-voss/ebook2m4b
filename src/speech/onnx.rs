@@ -479,9 +479,10 @@ impl Graph {
             if attr_ints(pads)? != [1, 1] || attr_ints(extra)? != [1] {
                 continue;
             }
-            n.retain(|(k, v)| {
-                !(*k == 5 && matches!(v, V::Bytes(b) if parse(b).is_ok_and(|a| matches!(str1(&a, 1).as_str(), "pads" | "output_padding"))))
-            });
+            let padding = |b: &[u8]| {
+                parse(b).is_ok_and(|a| matches!(str1(&a, 1).as_str(), "pads" | "output_padding"))
+            };
+            n.retain(|(k, v)| !(*k == 5 && matches!(v, V::Bytes(b) if padding(b))));
             n.push((5, V::Bytes(encode(&ints("pads", &[1, 0])))));
             fixed += 1;
         }
