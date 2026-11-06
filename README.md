@@ -31,6 +31,8 @@ The first run downloads the tools and models it needs with an NVIDIA card:
 * About 8.4 GB on Windows (9.7 GB unpacked) into  `%LOCALAPPDATA%\ebook2m4b`.
 * About 8.1 GB on Linux (9.4 GB unpacked) into `~/.local/share/ebook2m4b`. 
 
+Both speech models are modified at setup to fix one flaw: between two words with no punctuation between them, Kokoro and Kerstin sometimes leave a long silence in the middle of a sentence ("The ... second"). The modified copy limits the length of that one kind of gap to the top of its normal range, scaled with the speed; pauses at punctuation, paragraphs and chapters are not touched.
+
 The language is told from the book's text. The first German book downloads the German voice, Kerstin, about 338 MB more. A book in neither English nor German is reported as not done and the run goes on.
 
 

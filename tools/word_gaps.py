@@ -1,7 +1,8 @@
 """Silences between two words with no punctuation between them, for milestone 24 ("Silence between words").
 
   python tools/word_gaps.py <sentences> --lang en|de --model <model.onnx> --voice <voice.bin>
-      [--speed 1] [--split 0.16] [--out <table.json>] [--label <name>]
+      [--speed 1] [--split 0.16] [--hear] [--out <table.json>] [--label <name>]
+  python tools/word_gaps.py --compare <before.json> <after.json> --limit <frames at speed 1> [--out <table.json>]
 
 <sentences>: a text file, one sentence a line, or a JSON list of [before, after, sentence] whose pause sits
 between "before" and "after" (those pairs are counted as tagged). The product's phonemes come from the
@@ -14,10 +15,15 @@ frames are those of token i-1 (the word's last sound) and token i; its silence i
 windows under -45 dBFS from token i-1's start to the end of the first sound after the space (a stress mark
 before it taken with it). A gap with silence at or over --split is "wrong", the rest "normal".
 
-24b runs it on the patched and the unpatched model: the JSON holds each sentence's frames per token, so
-every other sound's length can be compared too. Prints a few summary lines; the table goes to --out.
+--hear: Whisper (setup's whisper-server and large-v3-turbo, as the product, no prompt) hears each sentence;
+its word match is the share of the sentence's words heard in order (difflib on lower-cased words).
+
+--compare (24b): two tables of the same sentences and speed, the unpatched model's and the patched one's.
+Counts every gap's last sound + gap over Round(limit/speed) frames in each, the pairs the patch should have
+left alone that changed, every other token whose frames changed (punctuation, pauses, sounds), the wrong
+gaps and the Whisper match in each. Prints a few lines; the per-pair table goes to --out.
 """
-import argparse, json, os, re, subprocess, sys, tempfile
+import argparse, difflib, io, json, os, re, subprocess, sys, tempfile, time, urllib.request, uuid, wave
 
 import numpy as np
 
@@ -27,6 +33,8 @@ SPACE, FIRST_SOUND, ARROWS = 16, 17, range(169, 174)
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TOKENIZER = os.path.join(os.environ.get("LOCALAPPDATA", ""), "ebook2m4b", "models", "kokoro", "tokenizer.json")
 FRAMES_OUT = {"/encoder/Clip_output_0", "duration"}
+SETUP = os.path.join(os.environ.get("LOCALAPPDATA", ""), "ebook2m4b")
+PORT = 8932  # not the product's 8931: a book being spoken keeps its own server
 
 
 def sentences(path):
@@ -82,6 +90,52 @@ def silence(audio, lo, hi):
     return best / RATE
 
 
+class Ear:
+    """whisper.cpp's server as the product starts it (whisper.rs server_args), stopped by close()."""
+
+    def __init__(self, lang):
+        setup = json.load(open(os.path.join(SETUP, "setup.json"), encoding="utf-8"))
+        exe = os.path.join(setup["whisper-server"], "whisper-server.exe")
+        model = os.path.join(SETUP, "models", "ggml-large-v3-turbo-q8_0.bin")
+        self.proc = subprocess.Popen([exe, "-m", model, "--port", str(PORT), "-t", "4", "-l", lang],
+                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        for _ in range(120):
+            try:
+                urllib.request.urlopen(f"http://127.0.0.1:{PORT}/", timeout=2)
+                return
+            except OSError:
+                if self.proc.poll() is not None:
+                    sys.exit("whisper-server ended at its start")
+                time.sleep(0.5)
+        self.proc.kill()
+        sys.exit("whisper-server did not answer in 60 s")
+
+    def hear(self, audio):
+        buf = io.BytesIO()
+        with wave.open(buf, "wb") as w:
+            w.setnchannels(1), w.setsampwidth(2), w.setframerate(RATE)
+            w.writeframes((np.clip(audio, -1, 1) * 32767).astype("<i2").tobytes())
+        b = uuid.uuid4().hex
+        fields = [("response_format", "json"), ("temperature", "0"), ("temperature_inc", "0")]
+        body = b"".join(f'--{b}\r\nContent-Disposition: form-data; name="{k}"\r\n\r\n{v}\r\n'.encode()
+                        for k, v in fields)
+        body += (f'--{b}\r\nContent-Disposition: form-data; name="file"; filename="s.wav"\r\n'
+                 f"Content-Type: audio/wav\r\n\r\n").encode() + buf.getvalue() + f"\r\n--{b}--\r\n".encode()
+        req = urllib.request.Request(f"http://127.0.0.1:{PORT}/inference", body,
+                                     {"Content-Type": f"multipart/form-data; boundary={b}"})
+        return json.load(urllib.request.urlopen(req, timeout=120))["text"].strip()
+
+    def close(self):
+        self.proc.kill()
+
+
+def word_match(said, heard):
+    """The share of the said words that Whisper heard, in order."""
+    a, b = (re.findall(r"\w+", t.lower()) for t in (said, heard))
+    matched = difflib.SequenceMatcher(None, a, b, autojunk=False).get_matching_blocks()
+    return sum(m.size for m in matched) / max(len(a), 1)
+
+
 def tagged_word(sentence, pause):
     """The index of the word after the tagged pause, counted in whitespace-parted words."""
     a, b = pause
@@ -96,6 +150,7 @@ def measure(args):
     lines, pauses = sentences(args.sentences)
     ps = phonemes(lines, args.lang)
     sess, frames_name = session(args.model)
+    ear = Ear(args.lang) if args.hear else None
     rows, per_sentence, arrows_seen = [], [], 0
     for n, (line, p, pause) in enumerate(zip(lines, ps, pauses)):
         if len(p) > 510:
@@ -109,6 +164,9 @@ def measure(args):
         audio, dur = wav.reshape(-1), np.rint(np.asarray(dur, dtype=np.float64).reshape(-1)).astype(int).tolist()
         start = np.cumsum([0] + dur) * FRAME
         per_sentence.append({"phonemes": p, "ids": ids, "frames": dur})
+        if ear:
+            heard = ear.hear(audio)
+            per_sentence[-1].update(heard=heard, match=round(word_match(line, heard), 4))
         words = p.split(" ")
         tag = tagged_word(line, pause) if pause else None
         if tag is not None and len(words) != len(line.split()):
@@ -129,6 +187,8 @@ def measure(args):
                          "tagged": tag == word})
         if pause and tag is None:
             print(f"sentence {n + 1}: its tagged pause could not be placed", file=sys.stderr)
+    if ear:
+        ear.close()
     json.dump({"model": args.model, "voice": args.voice, "speed": args.speed, "split": args.split,
                "gaps": rows, "sentences": per_sentence},
               open(args.out, "w", encoding="utf-8"), ensure_ascii=False, indent=0)
@@ -154,17 +214,69 @@ def summary(label, rows, arrows_seen, pauses):
         print(f"  tagged pauses placed {len(t)} of {len(pauses)}, of them wrong {sum(r['wrong'] for r in t)}")
 
 
+def pairs(ids):
+    """The token pairs (i-1, i) the patch limits: i a space, both neighbours sounds."""
+    return [(i - 1, i) for i in range(1, len(ids) - 1)
+            if ids[i] == SPACE and ids[i - 1] >= FIRST_SOUND and ids[i + 1] >= FIRST_SOUND]
+
+
+def compare(args):
+    before, after = (json.load(open(f, encoding="utf-8")) for f in args.compare)
+    if before["speed"] != after["speed"] or len(before["sentences"]) != len(after["sentences"]):
+        sys.exit("the two tables are not of the same sentences and speed")
+    top = round(args.limit / before["speed"])  # Python's round, as ONNX's Round, halves to even
+    over_b = over_a = changed_pairs = other_changed = other_tokens = 0
+    rows = []
+    for n, (b, a) in enumerate(zip(before["sentences"], after["sentences"])):
+        if b["ids"] != a["ids"]:
+            sys.exit(f"sentence {n + 1}: the tokens differ")
+        inside = set()
+        for j, i in pairs(b["ids"]):
+            inside |= {j, i}
+            fb, fa = b["frames"][j] + b["frames"][i], a["frames"][j] + a["frames"][i]
+            over_b += fb > top
+            over_a += fa > top
+            changed_pairs += fb <= top and (b["frames"][j], b["frames"][i]) != (a["frames"][j], a["frames"][i])
+            rows.append({"sentence": n + 1, "token": i, "before": fb, "after": fa})
+        for k in range(len(b["ids"])):
+            if k not in inside:
+                other_tokens += 1
+                other_changed += b["frames"][k] != a["frames"][k]
+    print(f"speed {before['speed']}, limit {top} frames: {len(rows)} gaps; over the limit before {over_b}, "
+          f"after {over_a}; pairs under it changed {changed_pairs}")
+    print(f"  other tokens {other_tokens}, changed {other_changed}")
+    wb, wa = (sum(r["wrong"] for r in t["gaps"]) for t in (before, after))
+    print(f"  wrong gaps (silence >= {before['split']} s) before {wb}, after {wa}")
+    if "match" in before["sentences"][0] and "match" in after["sentences"][0]:
+        mb = [s["match"] for s in before["sentences"]]
+        ma = [s["match"] for s in after["sentences"]]
+        print(f"  Whisper word match before {sum(mb) / len(mb):.4f}, after {sum(ma) / len(ma):.4f}; sentences "
+              f"lower after {sum(y < x for x, y in zip(mb, ma))}, higher {sum(y > x for x, y in zip(mb, ma))}")
+    json.dump(rows, open(args.out, "w", encoding="utf-8"), indent=0)
+
+
 def main():
     a = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    a.add_argument("sentences")
-    a.add_argument("--lang", choices=["en", "de"], required=True)
-    a.add_argument("--model", required=True)
-    a.add_argument("--voice", required=True)
+    a.add_argument("sentences", nargs="?")
+    a.add_argument("--lang", choices=["en", "de"])
+    a.add_argument("--model")
+    a.add_argument("--voice")
     a.add_argument("--speed", type=float, default=1.0)
     a.add_argument("--split", type=float, default=0.16, help="seconds of silence from which a gap is wrong")
     a.add_argument("--out", default=os.path.join(tempfile.gettempdir(), "word_gaps.json"))
     a.add_argument("--label")
-    measure(a.parse_args())
+    a.add_argument("--hear", action="store_true", help="Whisper's word match of each sentence")
+    a.add_argument("--compare", nargs=2, metavar=("BEFORE", "AFTER"))
+    a.add_argument("--limit", type=int, help="with --compare: the limit at speed 1, in frames")
+    args = a.parse_args()
+    if args.compare:
+        if args.limit is None:
+            a.error("--compare needs --limit")
+        compare(args)
+    elif not (args.sentences and args.lang and args.model and args.voice):
+        a.error("measuring needs <sentences>, --lang, --model and --voice")
+    else:
+        measure(args)
 
 
 if __name__ == "__main__":
