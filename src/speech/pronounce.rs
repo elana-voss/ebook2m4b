@@ -289,6 +289,19 @@ pub(crate) mod tests {
         assert_eq!(got, "diː ʦˈIt hˈIst ˈɔøroː");
     }
 
+    /// For tools/word_gaps.py, run by it alone: each line of the file $WORD_GAPS_IN to the product's
+    /// phonemes, a line each in $WORD_GAPS_OUT; German (eSpeak alone) when $WORD_GAPS_LANG is "de".
+    #[test]
+    #[ignore]
+    fn phonemes_of_lines() {
+        let var = |k| std::env::var(k).unwrap_or_default();
+        let de = P.german();
+        let p = if var("WORD_GAPS_LANG") == "de" { &de } else { &*P };
+        let text = std::fs::read_to_string(var("WORD_GAPS_IN")).unwrap();
+        let out: Vec<String> = text.lines().map(|l| p.phonemes(l).unwrap()).collect();
+        std::fs::write(var("WORD_GAPS_OUT"), out.join("\n") + "\n").unwrap();
+    }
+
     #[test]
     fn missing_espeak_data_is_an_error() {
         assert!(Pronounce::new(Path::new("no/such/espeak-ng-data")).is_err());

@@ -15,3 +15,5 @@ target/
 CLAUDE.md
 docs/
 .claude/
+!tools/word_gaps.py
+!tools/word_gaps_de.txt
